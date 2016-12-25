@@ -13,13 +13,13 @@
             all-tests))]))
 
 (define (build)
-  (unless (zero? (system (format "gcc -m32 -Wall -o stst ~a ~a stst.s"
+  (unless (zero? (system (format "clang -m32 -Wall -o stst.exe ~a ~a stst.s"
                                  (runtime-file)
                                  (lib-file))))
     (error 'make "could not build target")))
 
 (define (execute)
-  (unless (zero? (system "./stst > stst.out"))
+  (unless (zero? (system "stst > stst.out"))
     (error 'make "produced program exited abnormally")))
 
 
@@ -114,7 +114,7 @@
     (close-output-port p)))
 
 (define (execute)
-  (unless (fxzero? (system "./stst > stst.out"))
+  (unless (fxzero? (system "stst.exe > stst.out"))
     (error 'execute "produced program exited abnormally")))
 
 (define (get-string)
