@@ -1,7 +1,7 @@
 (load "../../src/tests-driver.scm")
 (load "../../src/tests-1.1-req.scm")
 (define (emit-program x)
- (unless (integer? x) (raise 'not-an-integer))
+ (unless (integer? x) (error 'not-an-integer "Expected integer" x))
  (emit "     .text")
  (emit "     .intel_syntax noprefix")
  (emit "     .globl _scheme_entry")
