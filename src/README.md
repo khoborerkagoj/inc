@@ -85,6 +85,9 @@ to
   assignments will not use it, but the tests will not run without it. Just
   create an empty file called `lib.s`.
 
+* The instructions also ask to include the driver file `test-driver.scm`, while
+  the code actually has the file `tests-driver.scm` (note the added `s`).
+
 
 Quick instructions to run all tests
 -----------------------------------

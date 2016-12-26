@@ -1,2 +1,6 @@
 *~
 *.bak
+*.exe
+*.out
+# stst.s is the unique file name that we generate
+stst.s
