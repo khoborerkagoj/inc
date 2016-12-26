@@ -13,6 +13,7 @@ Chez Scheme would print, I used the following code:
 ~~~
 
 As a result of this, the following were added:
+
 Character | String
 ----------|-------
 0         | `nul`
