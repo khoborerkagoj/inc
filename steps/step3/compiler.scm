@@ -85,9 +85,6 @@
   (emit "   and eax, ~d"
 	(bitwise-xor (- (expt 2 fx/wordsize) 1) imm/fx-mask)))
 			  
-
-;; fxnotlog
-
 ;; Helper functions used for primitives
 ;; ------------------------------------
 (define (emit-compare val)
