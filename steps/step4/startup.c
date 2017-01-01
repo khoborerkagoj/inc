@@ -20,14 +20,14 @@ static const char *getCharString(unsigned char c) {
     {0,    "nul"       },
     {7,    "alarm"     },
     {8,    "backspace" },
-    {'\t', "tab"       },		/* 9 */
-    {'\n', "newline"   },		/* 10 */
+    {'\t', "tab"       },               /* 9 */
+    {'\n', "newline"   },               /* 10 */
     {11,   "vtab"      },
     {12,   "page"      },
-    {'\r', "return"    },		/* 13 */
+    {'\r', "return"    },               /* 13 */
     {' ',  "space"     },
     {127,  "delete"    },
-    {0,    NULL        }		/* terminator */
+    {0,    NULL        }                /* terminator */
   };
   struct charTable_t *t;
   for (t = table; t->str != NULL; t++) {

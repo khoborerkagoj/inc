@@ -16,7 +16,7 @@
        (putprop 'prim-name '*is-prim* #t)
        (putprop 'prim-name '*arg-count* (length '(arg* ...)))
        (putprop 'prim-name '*emitter*
-		(lambda (arg* ...) b b* ...)))]))
+                (lambda (arg* ...) b b* ...)))]))
 
 (define (primitive? x) (and (symbol? x) (getprop x '*is-prim*)))
 (define (primitive-emitter x)
@@ -30,8 +30,8 @@
   (let ([prim (car expr)] [args (cdr expr)])
     (define (check-primcall-args prim args)
       (unless (= (length args) (getprop prim '*arg-count*))
-	      (error 'emit-primcall "Invalid # args"
-		     ((length args) . (getprop prim '*arg-count*)))))
+              (error 'emit-primcall "Invalid # args"
+                     ((length args) . (getprop prim '*arg-count*)))))
     (check-primcall-args prim args)
     (apply (primitive-emitter prim) args)))
 
@@ -64,7 +64,7 @@
 
 (define-primitive (fixnum? arg)
   (emit-expr arg)
-  (emit-mask-compare imm/fx-mask 0))	; last two bits should be 00b
+  (emit-mask-compare imm/fx-mask 0))    ; last two bits should be 00b
 
 (define-primitive (boolean? arg)
   (emit-expr arg)
@@ -84,16 +84,16 @@
   (emit "   not eax")
   ;; mask with all but bottom two bits
   (emit "   and eax, ~d"
-	(bitwise-xor (- (expt 2 fx/wordsize) 1) imm/fx-mask)))
-			  
+        (bitwise-xor (- (expt 2 fx/wordsize) 1) imm/fx-mask)))
+
 ;; Helper functions used for primitives
 ;; ------------------------------------
 (define (emit-compare val)
   ;; Generate eax <- eax == val ? 1 : 0. val should be a number.
-  (emit "    cmp eax,   ~d" val)	; compare eax to val
-  (emit "    sete al")			; 1 if equal
-  (emit "    movsx eax, al")		; extend to 32 bits with sign extend
-  (emit "    sal eax, ~d" imm/bool-bit)	; #t and #f differ only in this bit
+  (emit "    cmp eax,   ~d" val)        ; compare eax to val
+  (emit "    sete al")                  ; 1 if equal
+  (emit "    movsx eax, al")            ; extend to 32 bits with sign extend
+  (emit "    sal eax, ~d" imm/bool-bit) ; #t and #f differ only in this bit
   (emit "    or  eax, ~s" imm/bool-false))
 
 (define (emit-mask-compare mask val)
@@ -114,7 +114,7 @@
 (define imm/bool-false     #x2F)
 ;; bools are equal to #f in all bits except bit 6.
 (define imm/bool-mask      #xFFFFFFBF)
-(define imm/bool-bit       6)		; only difference in this bit
+(define imm/bool-bit       6)           ; only difference in this bit
 ;; a valid char should have top two bytes == 0, bottom byte == 0xF
 (define imm/char-mask      #xFFFF00FF)
 (define imm/char-tag  #x0F)
@@ -162,20 +162,21 @@
   (let ([count 0])
     (lambda ()
       (let ([L (format "L_~s" count)])
-	(set! count (+ 1 count))
-	L))))
+        (set! count (+ 1 count))
+        L))))
 
+;; ====== if =====
 (define (if? expr)
   (and (pair? expr) (symbol? (car expr)) (eqv? (car expr) 'if)))
 
 (define (emit-if expr)
-  (unless (= (length expr) 4)		; if,test,conseq,alternative
-	  (error 'emit-if "Ill formed if expression" expr))
+  (unless (= (length expr) 4)           ; if,test,conseq,alternative
+          (error 'emit-if "Ill formed if expression" expr))
   (let ([test        (cadr   expr)]
-	[consequent  (caddr  expr)]
-	[alternative (cadddr expr)]
-	[alt-label   (unique-label)]
-	[end-label   (unique-label)])
+        [consequent  (caddr  expr)]
+        [alternative (cadddr expr)]
+        [alt-label   (unique-label)]
+        [end-label   (unique-label)])
     (emit-expr test)
     (emit "    cmp eax, ~s" imm/bool-false)
     (emit "    je  ~a" alt-label)
@@ -184,11 +185,29 @@
     (emit "~a:" alt-label)
     (emit-expr alternative)
     (emit "~a:" end-label)))
+;; ===== and /or =====
+(define (and-or? expr)
+  (and (pair? expr) (symbol? (car expr))
+       (or (eqv? (car expr) 'and) (eqv? (car expr) 'or))))
+
+(define (emit-and-or expr)
+  (let ([end-label (unique-label)]
+        [init-val  (if (eqv? (car expr) 'and) imm/bool-true imm/bool-false)]
+        [cmp-instr (if (eqv? (car expr) 'and) "je" "jne")])
+    (emit "    mov eax, ~s" init-val)
+    (let and-term ([rest (cdr expr)])   ; car == 'and/'or
+      (if (not (null? rest))
+          (begin
+            (emit-expr (car rest))
+            (emit "    cmp eax, ~s" imm/bool-false)
+            ;; if eax is not #f, it contains the return value
+            (emit "    ~a ~a" cmp-instr end-label)
+            (and-term (cdr rest)))))
+    (emit "~a:" end-label)))
 
 ;; ======================================================================
 ;; Main program
 ;; ======================================================================
-
 (define (emit-function-header name)
   (emit "     .text")
   (emit "     .intel_syntax noprefix")
@@ -203,6 +222,7 @@
    [(immediate? expr) (emit-immediate expr)]
    [(if?        expr) (emit-if        expr)]
    [(primcall?  expr) (emit-primcall  expr)]
+   [(and-or?    expr) (emit-and-or    expr)]
    [else (error 'emit-expr "Neither immediate nor primcall" expr)]))
 
 (define (emit-program expr)
