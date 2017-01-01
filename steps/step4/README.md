@@ -3,9 +3,9 @@ The basic conditionals follow the template specified in the tutorial.
 The challenge is in the `and` and `or` syntactic forms that are specified in 
 the exercises.
 
-As an example, the file [`andexpand.scm`] implements how `and` would expand.
-One possibility is to use this to expand an `and` expression and then use the
-code generation for `if` to generate the code.
+As an example, the file [`andexpand.scm`](andexpand.scm) implements how
+`and` would expand. One possibility is to use this to expand an `and`
+expression and then use the code generation for `if` to generate the code.
 
 For instance, try the expression `(and-expander '(and 2 3 4 #f))`. This
 results in the expression
