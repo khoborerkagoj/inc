@@ -9,10 +9,22 @@
   [(if #\X (if 1 2 3) (if 4 5 6)) => "2\n"]
   [(if (not (boolean? #t)) 15 (boolean? #f)) => "#t\n"]
   [(if (if (char? #\a) (boolean? #\b) (fixnum? #\c)) 119 -23) => "-23\n"]
-  [(if (if (if (not 1) (not 2) (not 3)) 4 5) 6 7) => "6\n"] 
-  [(if (not (if (if (not 1) (not 2) (not 3)) 4 5)) 6 7) => "7\n"] 
-  [(not (if (not (if (if (not 1) (not 2) (not 3)) 4 5)) 6 7)) => "#f\n"] 
+  [(if (if (if (not 1) (not 2) (not 3)) 4 5) 6 7) => "6\n"]
+  [(if (not (if (if (not 1) (not 2) (not 3)) 4 5)) 6 7) => "7\n"]
+  [(not (if (not (if (if (not 1) (not 2) (not 3)) 4 5)) 6 7)) => "#f\n"]
   [(if (char? 12) 13 14) => "14\n"]
   [(if (char? #\a) 13 14) => "13\n"]
   [(fxadd1 (if (fxsub1 1) (fxsub1 13) 14)) => "13\n"]
+)
+
+(add-tests-with-string-output "and/or"
+  [(and)         => "#t\n"]
+  [(and 2)       => "2\n" ]
+  [(and 3 #f 4)  => "#f\n"]
+  [(and 3 #t ()) => "()\n"]
+  [(or)          => "#f\n"]
+  [(or 3 #f #f)  => "3\n" ]
+  [(or #f #f ()) => "()\n"]
+  [(or #f #t)    => "#t\n"]
+  [(or #f #f)    => "#f\n"]
 )
