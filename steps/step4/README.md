@@ -44,11 +44,3 @@ check that the argument is **not** `#f` before moving to the next one.
       would just generate 1 or 0 as the result of the boolean expression. This
       alternate form would be called only from the test expression of an `if`,
       so would not affect results. This is not currently implemented.
-
-- For `and` and `or`, we generate inefficient code (only `and` is discussed
-  here, but it is also valid for `or`): we only need to initialize `eax` when
-  we get an empty `and`. Otherwise, we can move on with the terms.
-  Additionally, we don't have to compare the last term with `#f` and then
-  decide whether to jump to the end point; we simply need to load `eax` with
-  the value and then fall through to the end.
-

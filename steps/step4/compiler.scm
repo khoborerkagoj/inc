@@ -1,8 +1,8 @@
 (load "../../src/tests-driver.scm")
 (load "../../src/tests-1.4-req.scm")
-(load "../../src/tests-1.3-req.scm")
-(load "../../src/tests-1.2-req.scm")
-(load "../../src/tests-1.1-req.scm")
+;(load "../../src/tests-1.3-req.scm")
+;(load "../../src/tests-1.2-req.scm")
+;(load "../../src/tests-1.1-req.scm")
 
 ;; ======================================================================
 ;; Primitives
@@ -192,17 +192,23 @@
 
 (define (emit-and-or expr)
   (let ([end-label (unique-label)]
-        [init-val  (if (eqv? (car expr) 'and) imm/bool-true imm/bool-false)]
         [cmp-instr (if (eqv? (car expr) 'and) "je" "jne")])
-    (emit "    mov eax, ~s" init-val)
+    ;; no need to initialize if and/or has arguments
+    (if (null? (cdr expr))
+        (emit "    mov eax, ~s"
+              (if (eqv? (car expr) 'and) imm/bool-true imm/bool-false)))
     (let and-term ([rest (cdr expr)])   ; car == 'and/'or
       (if (not (null? rest))
           (begin
             (emit-expr (car rest))
-            (emit "    cmp eax, ~s" imm/bool-false)
-            ;; if eax is not #f, it contains the return value
-            (emit "    ~a ~a" cmp-instr end-label)
-            (and-term (cdr rest)))))
+            ;; If (car rest) is the only term, and/or should return it.
+            ;; Thus we compare to #f only if it not the last term
+            (if (not (null? (cdr rest)))
+                (begin
+                  (emit "    cmp eax, ~s" imm/bool-false)
+                  ;; if eax is not #f, it contains the return value
+                  (emit "    ~a ~a" cmp-instr end-label)
+                  (and-term (cdr rest)))))))
     (emit "~a:" end-label)))
 
 ;; ======================================================================
