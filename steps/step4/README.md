@@ -52,14 +52,3 @@ check that the argument is **not** `#f` before moving to the next one.
   decide whether to jump to the end point; we simply need to load `eax` with
   the value and then fall through to the end.
 
-- The `je` and `jne` instructions can only make a relative jump of 128 bytes
-  in either direction (the jump offset is a signed 8 bit integer, relative to
-  the current location). If we have a large `and` clause, particularly with
-  our inefficient implementation, the code may not assemble. For instance,
-  moving a constant to `eax` takes 5 bytes, and a `Jcc` (`je`, `jne`, etc.)
-  instruction takes 3 bytes. Note that this problem would exist even for a 
-  deeply nested `if` where we follow the supplied template.
-    - A proper fix would be to count the instructions generated so far and then
-      generate appropriate code (`jmp` vs `je`). However, that is quite
-      elaborate and is deferred. Making `and` and `or` more optimized would 
-      definitely help, though it is not a fix.
