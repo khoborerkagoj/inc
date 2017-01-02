@@ -8,7 +8,7 @@
 #define char_tag 0x0F
 #define fx_shift 2
 
-int scheme_entry(void);
+int scheme_entry(char *stack);
 
 /* all scheme values are of type ptrs */
 typedef unsigned int ptr;
@@ -63,7 +63,6 @@ static void print_ptr (ptr x) {
 }
 
 static int getPageSize() {
-    int pageSize;
     SYSTEM_INFO sysInfo;
     GetSystemInfo(&sysInfo);
     return (int)sysInfo.dwPageSize;
@@ -109,7 +108,7 @@ int main (int argc, char **argv) {
     int stackSize = (16 * 4096);
     char *stackTop = allocateProtectedSpace(stackSize);
     char *stackBase = stackTop + stackSize;
-    print_ptr (scheme_entry());
+    print_ptr (scheme_entry(stackBase));
     deallocateProtectedSpace(stackTop, stackSize);
     return 0;
 }

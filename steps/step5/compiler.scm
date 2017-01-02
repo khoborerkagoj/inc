@@ -1,8 +1,8 @@
 (load "../../src/tests-driver.scm")
 (load "../../src/tests-1.4-req.scm")
-;(load "../../src/tests-1.3-req.scm")
-;(load "../../src/tests-1.2-req.scm")
-;(load "../../src/tests-1.1-req.scm")
+(load "../../src/tests-1.3-req.scm")
+(load "../../src/tests-1.2-req.scm")
+(load "../../src/tests-1.1-req.scm")
 
 ;; ======================================================================
 ;; Primitives
@@ -11,7 +11,7 @@
 ;; ========================
 (define-syntax define-primitive
   (syntax-rules ()
-    [(_ (prim-name arg* ...) b b* ...)
+    [(_ (prim-name si arg* ...) b b* ...)
      (begin
        (putprop 'prim-name '*is-prim* #t)
        (putprop 'prim-name '*arg-count* (length '(arg* ...)))
@@ -37,49 +37,49 @@
 
 ;; Primitives definition
 ;; =====================
-(define-primitive (fxadd1 arg)
+(define-primitive (fxadd1 si arg)
   (emit-expr arg)
   (emit "    add eax, ~s" (immediate-rep 1)))
 
-(define-primitive (fxsub1 arg)
+(define-primitive (fxsub1 si arg)
   (emit-expr arg)
   (emit "    sub eax, ~s" (immediate-rep 1)))
 
-(define-primitive (char->fixnum arg)
+(define-primitive (char->fixnum si arg)
   (emit-expr arg)
   (emit "    sar eax, 6"))
 
-(define-primitive (fixnum->char arg)
+(define-primitive (fixnum->char si arg)
   (emit-expr arg)
   (emit "    shl eax, 6")
   (emit "    or  eax, ~d" imm/char-tag))
 
-(define-primitive (fxzero? arg)
+(define-primitive (fxzero? si arg)
   (emit-expr arg)
   (emit-compare 0))
 
-(define-primitive (null? arg)
+(define-primitive (null? si arg)
   (emit-expr arg)
   (emit-compare imm/null-val))
 
-(define-primitive (fixnum? arg)
+(define-primitive (fixnum? si arg)
   (emit-expr arg)
   (emit-mask-compare imm/fx-mask 0))    ; last two bits should be 00b
 
-(define-primitive (boolean? arg)
+(define-primitive (boolean? si arg)
   (emit-expr arg)
   (emit-mask-compare imm/bool-mask imm/bool-false))
 
-(define-primitive (char? arg)
+(define-primitive (char? si arg)
   (emit-expr arg)
   (emit-mask-compare imm/char-mask imm/char-tag))
 
-(define-primitive (not arg)
+(define-primitive (not si arg)
   (emit-expr arg)
   ;; if (eax != #f) eax = #t
   (emit-compare imm/bool-false))
 
-(define-primitive (fxlognot arg)
+(define-primitive (fxlognot si arg)
   (emit-expr arg)
   (emit "   not eax")
   ;; mask with all but bottom two bits
@@ -215,10 +215,8 @@
 ;; Main program
 ;; ======================================================================
 (define (emit-function-header name)
-  (emit "     .text")
-  (emit "     .intel_syntax noprefix")
-  (emit "     .globl _~d" name)
-  (emit "_~d:" name))
+  (emit "")                             ; blank line
+  (emit "~a:" name))
 
 (define (emit-immediate expr)
    (emit "    mov eax, ~s" (immediate-rep expr)))
@@ -232,6 +230,15 @@
    [else (error 'emit-expr "Neither immediate nor primcall" expr)]))
 
 (define (emit-program expr)
-  (emit-function-header "scheme_entry")
+  (emit "    .text")
+  (emit "    .intel_syntax noprefix")
+  (emit "    .globl _scheme_entry")
+  (emit "_scheme_entry:")
+  (emit "    mov ecx, esp")             ; ecx is a scratch register
+  (emit "    mov esp, [esp + 4]")       ; stack base in argument
+  (emit "    call L_scheme_entry")
+  (emit "    mov esp, ecx")             ; restore original stack
+  (emit "    ret")
+  (emit-function-header "L_scheme_entry")
   (emit-expr expr)
   (emit "    ret"))
