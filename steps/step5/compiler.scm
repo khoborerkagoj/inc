@@ -16,7 +16,7 @@
        (putprop 'prim-name '*is-prim* #t)
        (putprop 'prim-name '*arg-count* (length '(arg* ...)))
        (putprop 'prim-name '*emitter*
-                (lambda (arg* ...) b b* ...)))]))
+                (lambda (si arg* ...) b b* ...)))]))
 
 (define (primitive? x) (and (symbol? x) (getprop x '*is-prim*)))
 (define (primitive-emitter x)
@@ -26,68 +26,75 @@
 (define (primcall? expr)
   (and (pair? expr) (primitive? (car expr))))
 
-(define (emit-primcall expr)
-  (let ([prim (car expr)] [args (cdr expr)])
+(define (emit-primcall si expr)
+  (let ([prim (car expr)]
+        [args (cdr expr)])              ; args includes "si"
     (define (check-primcall-args prim args)
       (unless (= (length args) (getprop prim '*arg-count*))
               (error 'emit-primcall "Invalid # args"
                      ((length args) . (getprop prim '*arg-count*)))))
     (check-primcall-args prim args)
-    (apply (primitive-emitter prim) args)))
+    (apply (primitive-emitter prim) (cons si args))))
 
-;; Primitives definition
-;; =====================
+;; Unary primitives definition
+;; ===========================
 (define-primitive (fxadd1 si arg)
-  (emit-expr arg)
+  (emit-expr si arg)
   (emit "    add eax, ~s" (immediate-rep 1)))
 
 (define-primitive (fxsub1 si arg)
-  (emit-expr arg)
+  (emit-expr si arg)
   (emit "    sub eax, ~s" (immediate-rep 1)))
 
 (define-primitive (char->fixnum si arg)
-  (emit-expr arg)
+  (emit-expr si arg)
   (emit "    sar eax, 6"))
 
 (define-primitive (fixnum->char si arg)
-  (emit-expr arg)
+  (emit-expr si arg)
   (emit "    shl eax, 6")
   (emit "    or  eax, ~d" imm/char-tag))
 
 (define-primitive (fxzero? si arg)
-  (emit-expr arg)
+  (emit-expr si arg)
   (emit-compare 0))
 
 (define-primitive (null? si arg)
-  (emit-expr arg)
+  (emit-expr si arg)
   (emit-compare imm/null-val))
 
 (define-primitive (fixnum? si arg)
-  (emit-expr arg)
+  (emit-expr si arg)
   (emit-mask-compare imm/fx-mask 0))    ; last two bits should be 00b
 
 (define-primitive (boolean? si arg)
-  (emit-expr arg)
+  (emit-expr si arg)
   (emit-mask-compare imm/bool-mask imm/bool-false))
 
 (define-primitive (char? si arg)
-  (emit-expr arg)
+  (emit-expr si arg)
   (emit-mask-compare imm/char-mask imm/char-tag))
 
 (define-primitive (not si arg)
-  (emit-expr arg)
+  (emit-expr si arg)
   ;; if (eax != #f) eax = #t
   (emit-compare imm/bool-false))
 
 (define-primitive (fxlognot si arg)
-  (emit-expr arg)
+  (emit-expr si arg)
   (emit "   not eax")
   ;; mask with all but bottom two bits
   (emit "   and eax, ~d"
         (bitwise-xor (- (expt 2 wordsize) 1) imm/fx-mask)))
 
+;; Binary primitives definition
+;; ============================
+;(define-primitive (fx+ si arg1 arg2)
+;  )
+
 ;; Helper functions used for primitives
 ;; ------------------------------------
+;; emit-compare and emit-mask-compare don't use si  
 (define (emit-compare val)
   ;; Generate eax <- eax == val ? 1 : 0. val should be a number.
   (emit "    cmp eax,   ~d" val)        ; compare eax to val
@@ -100,6 +107,10 @@
   ;; eax <- (eax & mask) == val ? 1 : 0
   (emit "    and eax, ~d" mask)
   (emit-compare val))
+
+(define (emit-save-eax si)
+  ;; si is always negative in our case, but we are extra safe
+  (emit (if (< si 0) "    mov [esp-~a], eax" "mov [esp+~a], eax") (abs si)))
 
 ;; ======================================================================
 ;; Immediates
@@ -169,7 +180,7 @@
 (define (if? expr)
   (and (pair? expr) (symbol? (car expr)) (eqv? (car expr) 'if)))
 
-(define (emit-if expr)
+(define (emit-if si expr)
   (unless (= (length expr) 4)           ; if,test,conseq,alternative
           (error 'emit-if "Ill formed if expression" expr))
   (let ([test        (cadr   expr)]
@@ -177,30 +188,33 @@
         [alternative (cadddr expr)]
         [alt-label   (unique-label)]
         [end-label   (unique-label)])
-    (emit-expr test)
+    (emit-expr si test)
     (emit "    cmp eax, ~s" imm/bool-false)
     (emit "    je  ~a" alt-label)
-    (emit-expr consequent)
+    (emit-expr si consequent)
     (emit "    jmp ~a" end-label)
     (emit "~a:" alt-label)
-    (emit-expr alternative)
+    (emit-expr si alternative)
     (emit "~a:" end-label)))
 ;; ===== and /or =====
 (define (and-or? expr)
   (and (pair? expr) (symbol? (car expr))
        (or (eqv? (car expr) 'and) (eqv? (car expr) 'or))))
 
-(define (emit-and-or expr)
+(define (emit-and-or si expr)
   (let ([end-label (unique-label)]
         [cmp-instr (if (eqv? (car expr) 'and) "je" "jne")])
     ;; no need to initialize if and/or has arguments
     (if (null? (cdr expr))
         (emit "    mov eax, ~s"
               (if (eqv? (car expr) 'and) imm/bool-true imm/bool-false)))
-    (let and-term ([rest (cdr expr)])   ; car == 'and/'or
+
+    ;; and-term makes recursive call, thus needs a copy of si (as func args)
+    (let and-term ([si   si        ]
+                   [rest (cdr expr)])   ; car == 'and/'or
       (if (not (null? rest))
           (begin
-            (emit-expr (car rest))
+            (emit-expr si (car rest))
             ;; If (car rest) is the only term, and/or should return it.
             ;; Thus we compare to #f only if it not the last term
             (if (not (null? (cdr rest)))
@@ -208,7 +222,7 @@
                   (emit "    cmp eax, ~s" imm/bool-false)
                   ;; if eax is not #f, it contains the return value
                   (emit "    ~a ~a" cmp-instr end-label)
-                  (and-term (cdr rest)))))))
+                  (and-term si (cdr rest)))))))
     (emit "~a:" end-label)))
 
 ;; ======================================================================
@@ -218,15 +232,18 @@
   (emit "")                             ; blank line
   (emit "~a:" name))
 
-(define (emit-immediate expr)
+(define (emit-immediate si expr)
    (emit "    mov eax, ~s" (immediate-rep expr)))
 
-(define (emit-expr expr)
+;; all the cases except emit-immediate can possibly use the stack (if only
+;; through recursive calls to emit-primcall. emit-immediate never makes a
+;; recursive call, but we pass in si in any case.
+(define (emit-expr si expr)
   (cond
-   [(immediate? expr) (emit-immediate expr)]
-   [(if?        expr) (emit-if        expr)]
-   [(primcall?  expr) (emit-primcall  expr)]
-   [(and-or?    expr) (emit-and-or    expr)]
+   [(immediate? expr) (emit-immediate si expr)]
+   [(if?        expr) (emit-if        si expr)]
+   [(primcall?  expr) (emit-primcall  si expr)]
+   [(and-or?    expr) (emit-and-or    si expr)]
    [else (error 'emit-expr "Neither immediate nor primcall" expr)]))
 
 (define (emit-program expr)
@@ -240,5 +257,5 @@
   (emit "    mov esp, ecx")             ; restore original stack
   (emit "    ret")
   (emit-function-header "L_scheme_entry")
-  (emit-expr expr)
+  (emit-expr (- wordsize) expr)         ; si initialized to -4
   (emit "    ret"))
