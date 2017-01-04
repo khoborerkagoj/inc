@@ -1,4 +1,5 @@
 (load "../../src/tests-driver.scm")
+(load "../../src/tests-1.5-req.scm")
 (load "../../src/tests-1.4-req.scm")
 (load "../../src/tests-1.3-req.scm")
 (load "../../src/tests-1.2-req.scm")
@@ -33,6 +34,7 @@
       (unless (= (length args) (getprop prim '*arg-count*))
               (error 'emit-primcall "Invalid # args"
                      ((length args) . (getprop prim '*arg-count*)))))
+    ;;(display (list prim args (length args)))
     (check-primcall-args prim args)
     (apply (primitive-emitter prim) (cons si args))))
 
@@ -57,60 +59,140 @@
 
 (define-primitive (fxzero? si arg)
   (emit-expr si arg)
-  (emit-compare 0))
+  (emit-compare= 0))
 
 (define-primitive (null? si arg)
   (emit-expr si arg)
-  (emit-compare imm/null-val))
+  (emit-compare= imm/null-val))
 
 (define-primitive (fixnum? si arg)
   (emit-expr si arg)
-  (emit-mask-compare imm/fx-mask 0))    ; last two bits should be 00b
+  (emit-mask-compare= imm/fx-mask 0))    ; last two bits should be 00b
 
 (define-primitive (boolean? si arg)
   (emit-expr si arg)
-  (emit-mask-compare imm/bool-mask imm/bool-false))
+  (emit-mask-compare= imm/bool-mask imm/bool-false))
 
 (define-primitive (char? si arg)
   (emit-expr si arg)
-  (emit-mask-compare imm/char-mask imm/char-tag))
+  (emit-mask-compare= imm/char-mask imm/char-tag))
 
 (define-primitive (not si arg)
   (emit-expr si arg)
   ;; if (eax != #f) eax = #t
-  (emit-compare imm/bool-false))
+  (emit-compare= imm/bool-false))
 
 (define-primitive (fxlognot si arg)
   (emit-expr si arg)
   (emit "   not eax")
   ;; mask with all but bottom two bits
   (emit "   and eax, ~d"
-        (bitwise-xor (- (expt 2 wordsize) 1) imm/fx-mask)))
+        (bitwise-xor (- (expt 2 wordbits) 1) imm/fx-mask)))
 
 ;; Binary primitives definition
 ;; ============================
-;(define-primitive (fx+ si arg1 arg2)
-;  )
+(define-primitive (fx+ si arg1 arg2)
+  (let ([res (emit-args-and-save* si arg1 arg2)])
+    (emit "    add eax, ~a" (cdr res))))
+
+(define-primitive (fx- si arg1 arg2)
+  ;; sub is not symmetric, so we need to pay attention to what is
+  ;; in the register
+  (let* ([res (emit-args-and-save* si arg1 arg2)])
+    (emit "    sub eax, ~a" (cdr res))
+    (if (not (car res))                 ; we just found arg2 - arg1
+        (emit "    neg eax"))))
+
+(define-primitive (fx* si arg1 arg2)
+  ;; mul cannot deal with immediates
+  (emit-args-and-save si arg1 arg2)
+  (emit "    sar eax, ~a" (- wordbits fx/bits))
+  (emit "    mul dword ptr ~a" (esp-expr si)))
+
+(define-primitive (fxlogand si arg1 arg2)
+  (let* ([res (emit-args-and-save* si arg1 arg2)])
+    (emit "    and eax, ~a" (cdr res))))
+
+(define-primitive (fxlogor si arg1 arg2)
+  (let ([res (emit-args-and-save* si arg1 arg2)])
+    (emit "    or  eax, ~a" (cdr res))))
+
+(define-primitive (fx= si arg1 arg2)
+  (let ([res (emit-args-and-save* si arg1 arg2)])
+    (emit-compare= (cdr res))))
+
+(define-primitive (fx< si arg1 arg2)
+  (let ([res (emit-args-and-save* si arg1 arg2)])
+    ;; if #f, we check arg2 > arg1
+    (emit-compare (if (car res) "setl" "setg") (cdr res))))
+
+(define-primitive (fx<= si arg1 arg2)
+  (let ([res (emit-args-and-save* si arg1 arg2)])
+    ;; if #f, we check arg2 >= arg1
+    (emit-compare (if (car res) "setle" "setge") (cdr res))))
+
+(define-primitive (fx> si arg1 arg2)
+  (let ([res (emit-args-and-save* si arg1 arg2)])
+    ;; if #f, we check arg2 < arg1
+    (emit-compare (if (car res) "setg" "setl") (cdr res))))
+
+(define-primitive (fx>= si arg1 arg2)
+  (let ([res (emit-args-and-save* si arg1 arg2)])
+    ;; if #f, we check arg2 <= arg1
+    (emit-compare (if (car res) "setge" "setle") (cdr res))))
 
 ;; Helper functions used for primitives
 ;; ------------------------------------
-;; emit-compare and emit-mask-compare don't use si  
-(define (emit-compare val)
-  ;; Generate eax <- eax == val ? 1 : 0. val should be a number.
-  (emit "    cmp eax,   ~d" val)        ; compare eax to val
-  (emit "    sete al")                  ; 1 if equal
+(define (emit-compare cmp val)
+  ;; Use comparison instruction cmp to set return value to #t or #f
+  (emit "    cmp eax,   ~a" val)        ; compare eax to val
+  (emit "    ~a al" cmp)                ; 1 if condition
   (emit "    movsx eax, al")            ; extend to 32 bits with sign extend
   (emit "    sal eax, ~d" imm/bool-bit) ; #t and #f differ only in this bit
   (emit "    or  eax, ~s" imm/bool-false))
 
-(define (emit-mask-compare mask val)
+;; emit-compare= and emit-mask-compare= don't use si
+(define (emit-compare= val)
+  ;; Generate eax <- eax == val ? #t : #f. val should be a number.
+  (emit-compare "sete" val))
+
+(define (emit-mask-compare= mask val)
   ;; eax <- (eax & mask) == val ? 1 : 0
   (emit "    and eax, ~d" mask)
-  (emit-compare val))
+  (emit-compare= val))
+
+(define (esp-expr si)
+  ;; si is always negative in our case, but we are extra safe
+  (format (if (< si 0) "[esp-~a]" "[esp+~a]") (abs si)))
 
 (define (emit-save-eax si)
-  ;; si is always negative in our case, but we are extra safe
-  (emit (if (< si 0) "    mov [esp-~a], eax" "mov [esp+~a], eax") (abs si)))
+  (emit "    mov ~a, eax" (esp-expr si)))
+
+(define (emit-args-and-save si arg1 arg2)
+  (emit-expr si arg2)
+  (emit-save-eax si)
+  (emit-expr (- si wordsize) arg1))
+
+(define (emit-args-and-save* si arg1 arg2)
+  ;; Evaluates the args, taking care of immediates.
+  ;;
+  ;; Returns a cons cell of the form (arg1reg? . otherArgValue). If arg1reg is
+  ;; #t, then arg1 is contained in eax, and otherArgValue is a string
+  ;; representation of arg2's value. Alternatively, if arg1reg is #f, arg2 is
+  ;; in eax, and otherArgValue is a string representation of arg1.
+  (if (immediate? arg2)
+      (begin
+        (emit-expr si arg1)             ; arg1 -> eax
+        (cons #t (format "~a" (immediate-rep arg2))))
+      (if (immediate? arg1)
+          (begin
+            (emit-expr si arg2)         ; arg2 -> eax
+            (cons #f (format "~a" (immediate-rep arg1))))
+          (begin
+            (emit-expr si arg2)         ; arg2 -> eax
+            (emit-save-eax si)          ; eax  -> stack
+            (emit-expr (- si wordsize) arg1) ; arg1 -> eax
+            (cons #t (esp-expr si))))))
 
 ;; ======================================================================
 ;; Immediates
@@ -154,11 +236,12 @@
 ;; implementation language necessary does not. So we cannot rely on
 ;; the input being a fixnum.  Instead, we assume it is an integer, and
 ;; make sure it is within the max and min values.
-(define wordsize 32)
+(define wordsize 4)                     ; # bytes in a word
+(define wordbits (* wordsize 8))        ; # bits  in a word
 (define fx/bits 30)
 (define fx/min-val (- 0 (bitwise-arithmetic-shift 1 (- fx/bits 1))))
 (define fx/max-val (- (bitwise-arithmetic-shift 1 (- fx/bits 1)) 1))
-(define imm/fx-mask (- (expt 2 (- wordsize fx/bits)) 1)) ; bottom 2 bits
+(define imm/fx-mask (- (expt 2 (- wordbits fx/bits)) 1)) ; bottom 2 bits
 
 (define (fixnum? x)
   (and (integer? x)
