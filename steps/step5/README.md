@@ -14,12 +14,14 @@ You will need to load this library explicitly.
        "fx=" "fxlogand and fxlogor" "fx*" "fx-" "fx+")
 
 Filter to only have a few:
+
     > (filter-tests "binary primitives" "fx*" "boolean?")
     > (show-tests)
       ("boolean?" "binary primitives" "fx*")
 
 You can then use `(test-all)` to run these tests. To reset to the original
 list (perhaps to choose a different subset), run 
+
     > (reset-tests)
     > (show-tests)
       ("integers" "immediate constants" "fxlognot" "not" "char?"
