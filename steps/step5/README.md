@@ -59,6 +59,7 @@ populate `eax` with the result of evaluation. For instance, given
 (emit "mov eax, ~a" (immediate-rep (fx+ 2 3)))
 ```
 However, we chose not to do this for a couple of reasons:
+
 1. If we use some other Scheme which does not support every single primitive
    that we are creating, we will be in trouble.
 2. In our tests, most expressions are of the "two-immediate" form, while
