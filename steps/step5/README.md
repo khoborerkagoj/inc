@@ -1,4 +1,4 @@
-# Additional utility
+# Filtering tests
 It is tiresome to run all the tests when you have a failure on test 153.
 For this reason, we created an additional library `tests-filter.scm` which 
 can show the "test categories" defined, allow you to filter them, and then
@@ -31,7 +31,7 @@ list (perhaps to choose a different subset), run
        "fx=" "fxlogand and fxlogor" "fx*" "fx-" "fx+")
 
 # Binary Primitives (1.6)
-
+## `startup.c`: adding a stack
 This is a somewhat complicated section, since we have to set up the stack 
 ahead of time. Additionally, the tutorial suggests a method of reserving a
 page before and a page after the stack section which has no access: any
@@ -43,6 +43,7 @@ one way to do it under Windows, using the `VirtualAlloc`, `VirtualProtect` and
 `VirtualFree` functions. A short test in startup.c itself verifies that even
 reading those pages causes a crash.
 
+## Extending the compiler
 For the binary primitives, we can follow the suggested method and put one 
 argument on the stack. However, we go with the optimization suggested in
 exercise 4 of the tutorial and check if either of the arguments is an immediate
@@ -50,6 +51,20 @@ value. If they are, we evaluate the other one and keep in eax. We then emit
 the appropriate expression to evaluate the other argument (either its immediate
 representation or the pointer to the stack where it is located) and return
 to the caller. This is encoded in the procedure `emit-args-and-save*`.
+
+Additionally, for binary comparisons, a procedure `emit-binary-compare` does
+most of the work. We don't know which (if any) argument will be an immediate
+value; so to check `<`, we use either `setl` if the first argument is in `eax`
+and `setg` if the second argument is in `eax` (this checks if `arg2 > arg1`).
+The other binary operations are similar.
+
+Note that `fx=` and `char=` have exactly the same implementation and the same
+for the other boolean-valued functions. At the end of the day, these are just
+integer comparisons once the `immediate-rep` has been done.
+
+## Extending tests
+The file `tests-1.5-req.scm` has been extended with tests to cover the boolean
+functions for `char`.
 
 ## Possible optimization
 It is also possible to detect if there are two immediate values and simply
@@ -70,7 +85,4 @@ However, we chose not to do this for a couple of reasons:
    compiler is complete).
 
 # TODO
-Implement `char` primitives such as `char=`, `char<` and so on. Note that there
-are no tests for these, we will have to add them.
-
 Implement the optimization discussed above.

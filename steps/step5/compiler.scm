@@ -122,27 +122,45 @@
     (emit-compare= (cdr res))))
 
 (define-primitive (fx< si arg1 arg2)
-  (let ([res (emit-args-and-save* si arg1 arg2)])
-    ;; if #f, we check arg2 > arg1
-    (emit-compare (if (car res) "setl" "setg") (cdr res))))
+  (emit-binary-compare si arg1 arg2 "setl" "setg"))
 
 (define-primitive (fx<= si arg1 arg2)
-  (let ([res (emit-args-and-save* si arg1 arg2)])
-    ;; if #f, we check arg2 >= arg1
-    (emit-compare (if (car res) "setle" "setge") (cdr res))))
+  (emit-binary-compare si arg1 arg2 "setle" "setge"))
 
 (define-primitive (fx> si arg1 arg2)
-  (let ([res (emit-args-and-save* si arg1 arg2)])
-    ;; if #f, we check arg2 < arg1
-    (emit-compare (if (car res) "setg" "setl") (cdr res))))
+  (emit-binary-compare si arg1 arg2 "setg" "setl"))
 
 (define-primitive (fx>= si arg1 arg2)
+  (emit-binary-compare si arg1 arg2 "setge" "setle"))
+
+;; The char expressions are exactly the same as fx expressions, given they
+;; are simply integer comparisons
+(define-primitive (char= si arg1 arg2)
   (let ([res (emit-args-and-save* si arg1 arg2)])
-    ;; if #f, we check arg2 <= arg1
-    (emit-compare (if (car res) "setge" "setle") (cdr res))))
+    (emit-compare= (cdr res))))
+
+(define-primitive (char< si arg1 arg2)
+  (emit-binary-compare si arg1 arg2 "setl" "setg"))
+
+(define-primitive (char<= si arg1 arg2)
+  (emit-binary-compare si arg1 arg2 "setle" "setge"))
+
+(define-primitive (char> si arg1 arg2)
+  (emit-binary-compare si arg1 arg2 "setg" "setl"))
+
+(define-primitive (char>= si arg1 arg2)
+  (emit-binary-compare si arg1 arg2 "setge" "setle"))
+
 
 ;; Helper functions used for primitives
 ;; ------------------------------------
+(define (emit-binary-compare si arg1 arg2 cmp/t cmp/f)
+  ;; compare the two arguments for the binary primitive; use comparison
+  ;; cmp/t if arg1reg is #t and cmp/f if arg1reg is #f
+  (let ([res (emit-args-and-save* si arg1 arg2)])
+    ;; if #f, we check arg2 <= arg1
+    (emit-compare (if (car res) cmp/t cmp/f) (cdr res))))
+
 (define (emit-compare cmp val)
   ;; Use comparison instruction cmp to set return value to #t or #f
   (emit "    cmp eax,   ~a" val)        ; compare eax to val

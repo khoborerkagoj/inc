@@ -30,7 +30,7 @@
   [(fx+ (fx+ (fx+ (fx+ (fx+ (fx+ (fx+ (fx+ 1 2) 3) 4) 5) 6) 7) 8) 9) => "45\n"]
   [(fx+ 1 (fx+ 2 (fx+ 3 (fx+ 4 (fx+ 5 (fx+ 6 (fx+ 7 (fx+ 8 9)))))))) => "45\n"]
 )
- 
+
 (add-tests-with-string-output "fx-"
   [(fx- 1 2) => "-1\n"]
   [(fx- 1 -2) => "3\n"]
@@ -196,7 +196,7 @@
   [(fx+ (fx+ (fx+ (fx+ (fx+ (fx+ (fx+ (fx+ 1 2) 3) 4) 5) 6) 7) 8) 9) => "45\n"]
   [(fx+ 1 (fx+ 2 (fx+ 3 (fx+ 4 (fx+ 5 (fx+ 6 (fx+ 7 (fx+ 8 9)))))))) => "45\n"]
   [(fx+ (fx+ (fx+ (fx+ 1 2) (fx+ 3 4)) (fx+ (fx+ 5 6) (fx+ 7 8)))
-        (fx+ (fx+ (fx+ 9 10) (fx+ 11 12)) (fx+ (fx+ 13 14) (fx+ 15 16)))) 
+        (fx+ (fx+ (fx+ 9 10) (fx+ 11 12)) (fx+ (fx+ 13 14) (fx+ 15 16))))
    => "136\n"]
   [(fx- (fx- 1 2) (fx- 3 4)) => "0\n"]
   [(fx- (fx- 1 2) (fx- 3 -4)) => "-8\n"]
@@ -217,10 +217,10 @@
   [(fx- (fx- (fx- (fx- (fx- (fx- (fx- (fx- 1 2) 3) 4) 5) 6) 7) 8) 9) => "-43\n"]
   [(fx- 1 (fx- 2 (fx- 3 (fx- 4 (fx- 5 (fx- 6 (fx- 7 (fx- 8 9)))))))) => "5\n"]
   [(fx- (fx- (fx- (fx- 1 2) (fx- 3 4)) (fx- (fx- 5 6) (fx- 7 8)))
-        (fx- (fx- (fx- 9 10) (fx- 11 12)) (fx- (fx- 13 14) (fx- 15 16)))) 
+        (fx- (fx- (fx- 9 10) (fx- 11 12)) (fx- (fx- 13 14) (fx- 15 16))))
    => "0\n"]
   [(fx* (fx* (fx* (fx* 2 3) (fx* 4 5)) (fx* (fx* 6 7) (fx* 8 9)))
-        (fx* (fx* (fx* 2 3) (fx* 2 3)) (fx* (fx* 2 3) (fx* 2 3)))) 
+        (fx* (fx* (fx* 2 3) (fx* 2 3)) (fx* (fx* 2 3) (fx* 2 3))))
    => "470292480\n"]
   [(fxlognot (fxlogor (fxlognot 7) 1)) => "6\n"]
   [(fxlognot (fxlogor (fxlognot 7) (fxlognot 2))) => "2\n"]
@@ -248,4 +248,28 @@
   [(fx>= (fx+ 10 6) (fx+ 13 31)) => "#f\n"]
   [(fx>= (fx+ 12 1) (fx+ -12 -1)) => "#t\n"]
   [(fx>= (fx+ -12 -1) (fx+ 12 1)) => "#f\n"]
+)
+
+(add-tests-with-string-output "char compare"
+  [(char=  #\x #\y) => "#f\n"]
+  [(char=  #\y #\x) => "#f\n"]
+  [(char=  #\x #\x) => "#t\n"]
+
+  [(char<  #\x #\y) => "#t\n"]
+  [(char<  #\y #\x) => "#f\n"]
+  [(char<  #\y #\y) => "#f\n"]
+
+  [(char<= #\x #\y) => "#t\n"]
+  [(char<= #\y #\x) => "#f\n"]
+  [(char<= #\x #\x) => "#t\n"]
+
+  [(char>  #\x #\y) => "#f\n"]
+  [(char>  #\y #\x) => "#t\n"]
+  [(char>  #\y #\y) => "#f\n"]
+
+  [(char>= #\x #\y) => "#f\n"]
+  [(char>= #\y #\x) => "#t\n"]
+  [(char>= #\x #\x) => "#t\n"]
+
+
 )
