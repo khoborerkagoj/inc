@@ -1,4 +1,6 @@
 (load "../../src/tests-driver.scm")
+(load "../../src/tests-1.6-req.scm")
+(load "../../src/tests-1.6-opt.scm")
 (load "../../src/tests-1.5-req.scm")
 (load "../../src/tests-1.4-req.scm")
 (load "../../src/tests-1.3-req.scm")
@@ -12,12 +14,14 @@
 ;; ========================
 (define-syntax define-primitive
   (syntax-rules ()
-    [(_ (prim-name si arg* ...) b b* ...)
+    [(_ (prim-name si env arg* ...) b b* ...)
      (begin
        (putprop 'prim-name '*is-prim* #t)
        (putprop 'prim-name '*arg-count* (length '(arg* ...)))
        (putprop 'prim-name '*emitter*
-                (lambda (si arg* ...) b b* ...)))]))
+                ;; the special names si and env are reserved, not to be
+                ;; otherwise used in primitive expressions
+                (lambda (si env arg* ...) b b* ...)))]))
 
 (define (primitive? x) (and (symbol? x) (getprop x '*is-prim*)))
 (define (primitive-emitter x)
@@ -27,63 +31,64 @@
 (define (primcall? expr)
   (and (pair? expr) (primitive? (car expr))))
 
-(define (emit-primcall si expr)
+(define (emit-primcall si env expr)
   (let ([prim (car expr)]
         [args (cdr expr)])              ; args includes "si"
     (define (check-primcall-args prim args)
       (unless (= (length args) (getprop prim '*arg-count*))
               (error 'emit-primcall "Invalid # args"
                      ((length args) . (getprop prim '*arg-count*)))))
-    ;;(display (list prim args (length args)))
     (check-primcall-args prim args)
-    (apply (primitive-emitter prim) (cons si args))))
+    (apply (primitive-emitter prim) (cons si (cons env args)))))
 
 ;; Unary primitives definition
 ;; ===========================
-(define-primitive (fxadd1 si arg)
-  (emit-expr si arg)
+;; The special names si and env are reserved, not to be otherwise used in
+;; primitive expressions
+(define-primitive (fxadd1 si env arg)
+  (emit-expr si env arg)
   (emit "    add eax, ~s" (immediate-rep 1)))
 
-(define-primitive (fxsub1 si arg)
-  (emit-expr si arg)
+(define-primitive (fxsub1 si env arg)
+  (emit-expr si env arg)
   (emit "    sub eax, ~s" (immediate-rep 1)))
 
-(define-primitive (char->fixnum si arg)
-  (emit-expr si arg)
+(define-primitive (char->fixnum si env arg)
+  (emit-expr si env arg)
   (emit "    sar eax, 6"))
 
-(define-primitive (fixnum->char si arg)
-  (emit-expr si arg)
+(define-primitive (fixnum->char si env arg)
+  (emit-expr si env arg)
   (emit "    shl eax, 6")
   (emit "    or  eax, ~d" imm/char-tag))
 
-(define-primitive (fxzero? si arg)
-  (emit-expr si arg)
+(define-primitive (fxzero? si env arg)
+  (emit-expr si env arg)
   (emit-compare= 0))
 
-(define-primitive (null? si arg)
-  (emit-expr si arg)
+(define-primitive (null? si env arg)
+  (emit-expr si env arg)
   (emit-compare= imm/null-val))
 
-(define-primitive (fixnum? si arg)
-  (emit-expr si arg)
+(define-primitive (fixnum? si env arg)
+  (emit-expr si env arg)
   (emit-mask-compare= imm/fx-mask 0))    ; last two bits should be 00b
 
-(define-primitive (boolean? si arg)
-  (emit-expr si arg)
+(define-primitive (boolean? si env arg)
+  (emit-expr si env arg)
   (emit-mask-compare= imm/bool-mask imm/bool-false))
 
-(define-primitive (char? si arg)
-  (emit-expr si arg)
+(define-primitive (char? si env arg)
+  (emit-expr si env arg)
   (emit-mask-compare= imm/char-mask imm/char-tag))
 
-(define-primitive (not si arg)
-  (emit-expr si arg)
+(define-primitive (not si env arg)
+  (emit-expr si env arg)
   ;; if (eax != #f) eax = #t
   (emit-compare= imm/bool-false))
 
-(define-primitive (fxlognot si arg)
-  (emit-expr si arg)
+(define-primitive (fxlognot si env arg)
+  (emit-expr si env arg)
   (emit "   not eax")
   ;; mask with all but bottom two bits
   (emit "   and eax, ~d"
@@ -91,73 +96,74 @@
 
 ;; Binary primitives definition
 ;; ============================
-(define-primitive (fx+ si arg1 arg2)
-  (let ([res (emit-args-and-save* si arg1 arg2)])
+;; The special names si and env are reserved, not to be otherwise used in
+;; primitive expressions
+(define-primitive (fx+ si env arg1 arg2)
+  (let ([res (emit-args-and-save* si env arg1 arg2)])
     (emit "    add eax, ~a" (cdr res))))
 
-(define-primitive (fx- si arg1 arg2)
+(define-primitive (fx- si env arg1 arg2)
   ;; sub is not symmetric, so we need to pay attention to what is
   ;; in the register
-  (let* ([res (emit-args-and-save* si arg1 arg2)])
+  (let* ([res (emit-args-and-save* si env arg1 arg2)])
     (emit "    sub eax, ~a" (cdr res))
     (if (not (car res))                 ; we just found arg2 - arg1
         (emit "    neg eax"))))
 
-(define-primitive (fx* si arg1 arg2)
+(define-primitive (fx* si env arg1 arg2)
   ;; mul cannot deal with immediates
-  (emit-args-and-save si arg1 arg2)
+  (emit-args-and-save si env arg1 arg2)
   (emit "    sar eax, ~a" (- wordbits fx/bits))
   (emit "    mul dword ptr ~a" (esp-expr si)))
 
-(define-primitive (fxlogand si arg1 arg2)
-  (let* ([res (emit-args-and-save* si arg1 arg2)])
+(define-primitive (fxlogand si env arg1 arg2)
+  (let* ([res (emit-args-and-save* si env arg1 arg2)])
     (emit "    and eax, ~a" (cdr res))))
 
-(define-primitive (fxlogor si arg1 arg2)
-  (let ([res (emit-args-and-save* si arg1 arg2)])
+(define-primitive (fxlogor si env arg1 arg2)
+  (let ([res (emit-args-and-save* si env arg1 arg2)])
     (emit "    or  eax, ~a" (cdr res))))
 
-(define-primitive (fx= si arg1 arg2)
-  (let ([res (emit-args-and-save* si arg1 arg2)])
+(define-primitive (fx= si env arg1 arg2)
+  (let ([res (emit-args-and-save* si env arg1 arg2)])
     (emit-compare= (cdr res))))
 
-(define-primitive (fx< si arg1 arg2)
-  (emit-binary-compare si arg1 arg2 "setl" "setg"))
+(define-primitive (fx< si env arg1 arg2)
+  (emit-binary-compare si env arg1 arg2 "setl" "setg"))
 
-(define-primitive (fx<= si arg1 arg2)
-  (emit-binary-compare si arg1 arg2 "setle" "setge"))
+(define-primitive (fx<= si env arg1 arg2)
+  (emit-binary-compare si env arg1 arg2 "setle" "setge"))
 
-(define-primitive (fx> si arg1 arg2)
-  (emit-binary-compare si arg1 arg2 "setg" "setl"))
+(define-primitive (fx> si env arg1 arg2)
+  (emit-binary-compare si env arg1 arg2 "setg" "setl"))
 
-(define-primitive (fx>= si arg1 arg2)
-  (emit-binary-compare si arg1 arg2 "setge" "setle"))
+(define-primitive (fx>= si env arg1 arg2)
+  (emit-binary-compare si env arg1 arg2 "setge" "setle"))
 
 ;; The char expressions are exactly the same as fx expressions, given they
 ;; are simply integer comparisons
-(define-primitive (char= si arg1 arg2)
-  (let ([res (emit-args-and-save* si arg1 arg2)])
+(define-primitive (char= si env arg1 arg2)
+  (let ([res (emit-args-and-save* si env arg1 arg2)])
     (emit-compare= (cdr res))))
 
-(define-primitive (char< si arg1 arg2)
-  (emit-binary-compare si arg1 arg2 "setl" "setg"))
+(define-primitive (char< si env arg1 arg2)
+  (emit-binary-compare si env arg1 arg2 "setl" "setg"))
 
-(define-primitive (char<= si arg1 arg2)
-  (emit-binary-compare si arg1 arg2 "setle" "setge"))
+(define-primitive (char<= si env arg1 arg2)
+  (emit-binary-compare si env arg1 arg2 "setle" "setge"))
 
-(define-primitive (char> si arg1 arg2)
-  (emit-binary-compare si arg1 arg2 "setg" "setl"))
+(define-primitive (char> si env arg1 arg2)
+  (emit-binary-compare si env arg1 arg2 "setg" "setl"))
 
-(define-primitive (char>= si arg1 arg2)
-  (emit-binary-compare si arg1 arg2 "setge" "setle"))
-
+(define-primitive (char>= si env arg1 arg2)
+  (emit-binary-compare si env arg1 arg2 "setge" "setle"))
 
 ;; Helper functions used for primitives
 ;; ------------------------------------
-(define (emit-binary-compare si arg1 arg2 cmp/t cmp/f)
+(define (emit-binary-compare si env arg1 arg2 cmp/t cmp/f)
   ;; compare the two arguments for the binary primitive; use comparison
   ;; cmp/t if arg1reg is #t and cmp/f if arg1reg is #f
-  (let ([res (emit-args-and-save* si arg1 arg2)])
+  (let ([res (emit-args-and-save* si env arg1 arg2)])
     ;; if #f, we check arg2 <= arg1
     (emit-compare (if (car res) cmp/t cmp/f) (cdr res))))
 
@@ -179,19 +185,12 @@
   (emit "    and eax, ~d" mask)
   (emit-compare= val))
 
-(define (esp-expr si)
-  ;; si is always negative in our case, but we are extra safe
-  (format (if (< si 0) "[esp-~a]" "[esp+~a]") (abs si)))
+(define (emit-args-and-save si env arg1 arg2)
+  (emit-expr si env arg2)
+  (emit-stack-save si)
+  (emit-expr (- si wordsize) env arg1))
 
-(define (emit-save-eax si)
-  (emit "    mov ~a, eax" (esp-expr si)))
-
-(define (emit-args-and-save si arg1 arg2)
-  (emit-expr si arg2)
-  (emit-save-eax si)
-  (emit-expr (- si wordsize) arg1))
-
-(define (emit-args-and-save* si arg1 arg2)
+(define (emit-args-and-save* si env arg1 arg2)
   ;; Evaluates the args, taking care of immediates.
   ;;
   ;; Returns a cons cell of the form (arg1reg? . otherArgValue). If arg1reg is
@@ -200,16 +199,16 @@
   ;; in eax, and otherArgValue is a string representation of arg1.
   (if (immediate? arg2)
       (begin
-        (emit-expr si arg1)             ; arg1 -> eax
+        (emit-expr si env arg1)         ; arg1 -> eax
         (cons #t (format "~a" (immediate-rep arg2))))
       (if (immediate? arg1)
           (begin
-            (emit-expr si arg2)         ; arg2 -> eax
+            (emit-expr si env arg2)     ; arg2 -> eax
             (cons #f (format "~a" (immediate-rep arg1))))
           (begin
-            (emit-expr si arg2)         ; arg2 -> eax
-            (emit-save-eax si)          ; eax  -> stack
-            (emit-expr (- si wordsize) arg1) ; arg1 -> eax
+            (emit-expr si env arg2)          ; arg2 -> eax
+            (emit-stack-save si)             ; eax  -> stack
+            (emit-expr (- si wordsize) env arg1) ; arg1 -> eax
             (cons #t (esp-expr si))))))
 
 ;; ======================================================================
@@ -245,9 +244,6 @@
     [else (error 'immediate-rep "Unhandled type" x)]
     ) x))
 
-(define immediate?
-  (lambda (x) (or (null? x) (fixnum? x) (boolean? x) (char? x))))
-
 ;; Fixnums
 ;; =======
 ;; Fixnums. Note that our scheme uses 30 bit fixnums, while the
@@ -267,30 +263,97 @@
 ;; Convert to our fixnum
 (define (fxnum-rep n) (bitwise-arithmetic-shift n 2))
 
+(define immediate?
+  (lambda (x) (or (null? x) (fixnum? x) (boolean? x) (char? x))))
+
+(define (emit-immediate expr)
+   (emit "    mov eax, ~s" (immediate-rep expr)))
+
 ;; ======================================================================
 ;; Local variables
 ;; ======================================================================
 (define (all f l)
-  ;; f is a function of one variable. For any element e of l, if (f e) is #f,
-  ;; all returns #f, otherwise it returns (f (last l)). (all f '()) => #t.
-  ;; Equivalent to (apply and (map f l)), except it only evaluates the
-  ;; elements of l that it needs to ((map f l) would create a new list).
-  (let all-internal ([ret #t] [l l])    ; ret is return value
-    (if (null? l)
-        ret
-        (let ([first (f (car l))])
-          (if first (all-internal first (cdr l)) #f)))))
+  ;; f is a function of one variable. (all f '()) returns #t.
+  ;; (all f l) returns #t if (f e) is not #f for *all* elements e of l.
+  ;; otherwise, it returns #f.
+  (not (find (lambda (e) (not (f e))) l)))
 
-(define (let? expr)
+(define (extend-env var si env)
+  (cons (cons var si) env))
+
+;; let or let* (controlled by name)
+(define (let-*-? name expr)
   (define (binding? expr)
-    (and (pair? expr) (not (list? expr)) (symbol? (car expr))))
-  (define (bindings? expr)
-    (or (null? expr) (and (list? expr) (all binding? expr))))
-  (and (pair? expr)
-       (symbol? (car expr))
-       (eqv? (car expr) 'let)
-       (bindings? (cadr expr))          ; 2nd element should be bindings
-       ))
+    ;; list of two elems whose first is a symbol
+    (and (list? expr) (= (length expr) 2) (symbol? (car expr))))
+  (define (bindings? expr)              ; a possibly empty list of bindings
+    (and (list? expr) (all binding? expr)))
+  (and (list? expr)
+       (> (length expr) 2)              ; at least 3 elements
+       (eqv? (car expr) name)
+       (bindings? (cadr expr))))        ; 2nd element should be bindings
+
+(define (let?  expr) (let-*-? 'let  expr))
+(define (let*? expr) (let-*-? 'let* expr))
+
+;; A variable on the (run-time) stack will return a string representation
+;; of the value. This can be used either for a load or a store
+(define variable? symbol?)
+
+;; An environment is represented by the stack offset it has. The lookup
+;; function will return the stack offset, or #f if not found.
+(define (lookup-variable var env)
+  (let ([p (assoc var env)])
+    (if p (cdr p) #f)))
+
+;; The environment value for a variable is its si index. Thus processing a
+;; variable reference is simply loading it into eax from its stack position.
+(define (emit-vbl-ref env var)
+  (let ([si (lookup-variable var env)])
+    (if si (emit-stack-load si)
+        (error 'emit-variable "Variable not found" var))))
+
+(define (emit-let si env expr)
+  (define (let-body     let-expr) (cddr let-expr))
+  (define (let-bindings let-expr) (cadr let-expr))
+  ;; process bindings, one at a time
+  (let pb ([bindings (let-bindings expr)]
+           [si       si                 ]
+           [new-env  env                ])
+    (cond
+     [(null? bindings) (emit-exprs si new-env (let-body expr))]
+     [else
+      (let ([b (car bindings)])         ; b -> '(var-name binding-expr)
+        ;; Though we add bindings, pass the original env here. All env lookups
+        ;; on the rhs of a binding expression happen in the original env. This
+        ;; contrasts to let*, for which lookups are in the extended env.
+        (emit-expr si env (cadr b))     ; binding value -> eax
+        (emit-stack-save si)            ; save eax -> stack
+        (pb (cdr bindings)              ; process the rest with new env
+            (- si wordsize)
+            (extend-env (car b) si new-env)))])))
+
+(define (emit-let* si env expr)
+  (define (let-body     let-expr) (cddr let-expr))
+  (define (let-bindings let-expr) (cadr let-expr))
+  ;; process bindings, one at a time
+  (let pb ([bindings (let-bindings expr)]
+           [si       si                 ]
+           [new-env  env                ])
+    ;(display (format "env ~s new ~s bin ~s\n" env new-env bindings))
+    (cond
+     [(null? bindings) (emit-exprs si new-env (let-body expr))]
+     [else
+      (let ([b (car bindings)])         ; b -> '(var-name binding-expr)
+        ;; Pass the extended environment here. Subsequent binding expressions
+        ;; use the new environment (all bindings that have happened so far in
+        ;; this let*) and thus use variables defined there.  This contrasts to
+        ;; let, for which lookups are in the original env.
+        (emit-expr si new-env (cadr b)) ; binding value -> eax
+        (emit-stack-save si)            ; save eax -> stack
+        (pb (cdr bindings)              ; process the rest with new env
+            (- si wordsize)
+            (extend-env (car b) si new-env)))])))
 
 ;; ======================================================================
 ;; Conditionals
@@ -306,7 +369,7 @@
 (define (if? expr)
   (and (pair? expr) (symbol? (car expr)) (eqv? (car expr) 'if)))
 
-(define (emit-if si expr)
+(define (emit-if si env expr)
   (unless (= (length expr) 4)           ; if,test,conseq,alternative
           (error 'emit-if "Ill formed if expression" expr))
   (let ([test        (cadr   expr)]
@@ -314,20 +377,20 @@
         [alternative (cadddr expr)]
         [alt-label   (unique-label)]
         [end-label   (unique-label)])
-    (emit-expr si test)
+    (emit-expr si env test)
     (emit "    cmp eax, ~s" imm/bool-false)
     (emit "    je  ~a" alt-label)
-    (emit-expr si consequent)
+    (emit-expr si env consequent)
     (emit "    jmp ~a" end-label)
     (emit "~a:" alt-label)
-    (emit-expr si alternative)
+    (emit-expr si env alternative)
     (emit "~a:" end-label)))
 ;; ===== and /or =====
 (define (and-or? expr)
   (and (pair? expr) (symbol? (car expr))
        (or (eqv? (car expr) 'and) (eqv? (car expr) 'or))))
 
-(define (emit-and-or si expr)
+(define (emit-and-or si env expr)
   (let ([end-label (unique-label)]
         [cmp-instr (if (eqv? (car expr) 'and) "je" "jne")])
     ;; no need to initialize if and/or has arguments
@@ -340,7 +403,7 @@
                    [rest (cdr expr)])   ; car == 'and/'or
       (if (not (null? rest))
           (begin
-            (emit-expr si (car rest))
+            (emit-expr si env (car rest))
             ;; If (car rest) is the only term, and/or should return it.
             ;; Thus we compare to #f only if it not the last term
             (if (not (null? (cdr rest)))
@@ -352,26 +415,48 @@
     (emit "~a:" end-label)))
 
 ;; ======================================================================
+;; Helper functions for stack
+;; ======================================================================
+(define (esp-expr si)
+  ;; An expression representing a stack value, can be used for load/save
+  ;; si is always negative in our case, but we are extra safe
+  (format (if (< si 0) "[esp-~a]" "[esp+~a]") (abs si)))
+
+(define (emit-stack-save si)
+  (emit "    mov ~a, eax" (esp-expr si)))
+
+(define (emit-stack-load si)
+  (emit "    mov eax, ~a" (esp-expr si)))
+
+;; ======================================================================
 ;; Main program
 ;; ======================================================================
 (define (emit-function-header name)
   (emit "")                             ; blank line
   (emit "~a:" name))
 
-(define (emit-immediate si expr)
-   (emit "    mov eax, ~s" (immediate-rep expr)))
+;; Call emit-expr for each element of the expression list exprs, passing in si
+;; and env each time. Discard the result of all but the last expression.
+(define (emit-exprs si env exprs)
+  (if (not (null? exprs))
+      (begin
+        (emit-expr  si env (car exprs))
+        (emit-exprs si env (cdr exprs)))))
+
 
 ;; all the cases except emit-immediate can possibly use the stack (if only
 ;; through recursive calls to emit-primcall. emit-immediate never makes a
 ;; recursive call, but we pass in si in any case.
 (define (emit-expr si env expr)
   (cond
-   [(immediate? expr) (emit-immediate si env expr)]
+   [(immediate? expr) (emit-immediate        expr)]
+   [(variable?  expr) (emit-vbl-ref      env expr)]
    [(if?        expr) (emit-if        si env expr)]
    [(primcall?  expr) (emit-primcall  si env expr)]
    [(let?       expr) (emit-let       si env expr)]
+   [(let*?      expr) (emit-let*      si env expr)]
    [(and-or?    expr) (emit-and-or    si env expr)]
-   [else (error 'emit-expr "Neither immediate nor primcall" expr)]))
+   [else (error 'emit-expr "Unknown expression type" expr)]))
 
 (define (emit-program expr)
   (emit "    .text")
