@@ -362,7 +362,7 @@
          [labels   (map (lambda (n) (unique-label)) lvars)]
          [env      (make-initial-env lvars labels)])
     (for-each (emit-lambda env) lambdas labels lvars)
-    (emit-scheme-entry (letrec-body expr) env)))
+    (emit-scheme-entry env (letrec-body expr))))
 
 (define (emit-lambda env)
   ;; Instead of directly generating a lambda, we generate a function that
@@ -377,35 +377,38 @@
     ;; the given environment and then generate the body expression with the
     ;; new environment. This is similar to a let expression.
     (emit "")
-    (emit "// ~a: ~s" lvar (cdr expr))
+    (emit "// ~a: ~s" lvar (cadr expr))
     (emit-function-header label)
     (let ([fmls (cadr expr)]
           [body (cddr expr)])
+      ;;(display (format "lambda fmls ~a body ~a env ~a\n" fmls body env))
       ;; si starts at -wordsize, since esp is updated for each call
       (let f ([fmls fmls] [si (- wordsize)] [env env])
         (if (null? fmls)
             (emit-exprs si env body)
-            (f (cdr fmls) (- si wordsize) (extend-env (cdr fmls) si env)))))
+            (f (cdr fmls) (- si wordsize) (extend-env (car fmls) si env)))))
     (emit "    ret")))
 
 (define (emit-app si env expr)
   (define (emit-arguments si args)
-    (display (format "emit-args ~a ~a\n" si args))
-    (unless (null? args)
-            (emit-expr si env (car args))
-            (emit-stack-save si)
-            (emit-arguments (- si wordsize) (cdr args)))
-    si)
-  (display (format "\nemit-app ~a ~a ~a\n" si env expr))
+    ;;(display (format "emit-args ~a ~a\n" si args))
+    (if (null? args)
+        si
+        (begin
+          (emit-expr si env (car args))
+          (emit-stack-save si)
+          (emit-arguments (- si wordsize) (cdr args)))))
+
+  ;(display (format "\nemit-app ~a ~a ~a\n" si env expr))
   ;; We find si-wordsize to leave one spot for return address
-  (let ([si  (emit-arguments (- si wordsize) (cdr expr))]
-        [lbl (lookup-variable (car expr) env)])
-        (emit-adjust-stack (+ si wordsize))
-        (if (string? lbl)
-            (emit "    call ~a" lbl)
-            (error 'emit-app "Unknown procedure" (car expr)))
-        (emit-adjust-stack (- (+ si wordsize)))
-        ))
+  (let ([lbl (lookup-variable (car expr) env)])
+    (emit-arguments (- si wordsize) (cdr expr))
+    (emit-adjust-stack (+ si wordsize))
+    (if (string? lbl)
+        (emit "    call ~a" lbl)
+        (error 'emit-app "Unknown procedure" (car expr)))
+    (emit-adjust-stack (- (+ si wordsize)))
+    ))
 
 ;; xxx should check if the function is already defined
 (define (app? expr)
@@ -483,8 +486,9 @@
   (emit "    mov eax, ~a" (esp-expr si)))
 
 (define (emit-adjust-stack inc)
-  (cond (< inc 0) (emit "    add esp, ~a" inc)
-        (> inc 0) (emit "    sub esp, ~a" inc)))
+  ;(display (format "Stack adj ~a\n" inc))
+  (cond [(< inc 0) (emit "    sub esp, ~a" (- inc))]
+        [(> inc 0) (emit "    add esp, ~a" inc)]))
 
 ;; ==== Utility functions ====
 (define unique-label
@@ -534,7 +538,7 @@
    [(app?       expr) (emit-app       si env expr)]
    [else (error 'emit-expr "Unknown expression type" expr)]))
 
-(define (emit-scheme-entry exprs env)
+(define (emit-scheme-entry env exprs)
   (emit "_scheme_entry:")
   (emit "    mov ecx, esp")             ; ecx is a scratch register
   (emit "    mov esp, [esp + 4]")       ; stack base in argument
@@ -552,4 +556,4 @@
   (emit "    .globl _scheme_entry")
   (if (letrec? expr)
       (emit-letrec expr)          ; which eventually calls emit-scheme-entry
-      (emit-scheme-entry (list expr) '())))
+      (emit-scheme-entry '() (list expr))))
