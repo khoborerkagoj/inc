@@ -381,7 +381,7 @@
     (emit-function-header label)
     (let ([fmls (cadr expr)]
           [body (cddr expr)])
-      ;;(display (format "lambda fmls ~a body ~a env ~a\n" fmls body env))
+
       ;; si starts at -wordsize, since esp is updated for each call
       (let f ([fmls fmls] [si (- wordsize)] [env env])
         (if (null? fmls)
@@ -391,29 +391,22 @@
 
 (define (emit-app si env expr)
   (define (emit-arguments si args)
-    ;;(display (format "emit-args ~a ~a\n" si args))
-    (if (null? args)
-        si
-        (begin
-          (emit-expr si env (car args))
-          (emit-stack-save si)
-          (emit-arguments (- si wordsize) (cdr args)))))
+    (unless (null? args)
+            (emit-expr si env (car args))
+            (emit-stack-save si)
+            (emit-arguments (- si wordsize) (cdr args))))
 
-  ;(display (format "\nemit-app ~a ~a ~a\n" si env expr))
   ;; We find si-wordsize to leave one spot for return address
   (let ([lbl (lookup-variable (car expr) env)])
+    (unless (string? lbl)               ; else not a lambda expression
+            (error 'emit-app "Unknown procedure" (car expr)))
     (emit-arguments (- si wordsize) (cdr expr))
     (emit-adjust-stack (+ si wordsize))
-    (if (string? lbl)
-        (emit "    call ~a" lbl)
-        (error 'emit-app "Unknown procedure" (car expr)))
-    (emit-adjust-stack (- (+ si wordsize)))
-    ))
+    (emit "    call ~a" lbl)
+    (emit-adjust-stack (- (+ si wordsize)))))
 
-;; xxx should check if the function is already defined
 (define (app? expr)
-  (let ([res (and (pair? expr) (symbol? (car expr)))])
-    res))
+  (and (pair? expr) (symbol? (car expr))))
 
 (define (make-initial-env symbols values)
   (map cons symbols values))
@@ -486,7 +479,6 @@
   (emit "    mov eax, ~a" (esp-expr si)))
 
 (define (emit-adjust-stack inc)
-  ;(display (format "Stack adj ~a\n" inc))
   (cond [(< inc 0) (emit "    sub esp, ~a" (- inc))]
         [(> inc 0) (emit "    add esp, ~a" inc)]))
 
@@ -517,7 +509,6 @@
 ;; Call emit-expr for each element of the expression list exprs, passing in si
 ;; and env each time. Discard the result of all but the last expression.
 (define (emit-exprs si env exprs)
-  ;;(display (format "e-es ~a ~a ~a" si env exprs))
   (unless (null? exprs)
           (emit-expr  si env (car exprs))
           (emit-exprs si env (cdr exprs))))
@@ -526,7 +517,6 @@
 ;; through recursive calls to emit-primcall). emit-immediate never makes a
 ;; recursive call, but we pass in si in any case.
 (define (emit-expr si env expr)
-  ;;(display (format "e-ex ~a ~a ~a" si env expr))
   (cond
    [(immediate? expr) (emit-immediate        expr)]
    [(variable?  expr) (emit-vbl-ref      env expr)]
