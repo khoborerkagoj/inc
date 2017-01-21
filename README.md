@@ -14,3 +14,7 @@ steps as well.
 [1]: https://github.com/namin/inc/blob/master/docs/paper.pdf?raw=true
 [2]: https://github.com/namin/inc/blob/master/docs/tutorial.pdf?raw=true
 [3]: http://matt.might.net/articles/cps-conversion/
+
+### Running tests
+See [src/README.md](src/README.md) for instructions on how to proceed and run
+tests.
