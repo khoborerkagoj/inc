@@ -8,7 +8,7 @@
   (syntax-rules (=>)
     [(_ test-name [expr => output-string] ...)
      (set! all-tests
-        (cons 
+        (cons
            '(test-name [expr string  output-string] ...)
             all-tests))]))
 
@@ -56,13 +56,13 @@
      [(string) (test-with-string-output test-id expr out)]
      [else (error 'test (format "invalid test type ~s" type))])
     (printf " ok\n")))
- 
+
 (define (test-all)
   (let f ([i 0] [ls (reverse all-tests)])
     (if (null? ls)
         (printf "passed all ~s tests\n" i)
         (let ([x (car ls)] [ls (cdr ls)])
-          (let* ([test-name (car x)] 
+          (let* ([test-name (car x)]
                  [tests (cdr x)]
                  [n (length tests)])
             (printf "Performing ~a tests ...\n" test-name)
@@ -74,14 +74,14 @@
                  (g (add1 i) (cdr tests))])))))))
 
 
-(define input-filter 
+(define input-filter
   (make-parameter (lambda (x) x)
     (lambda (x)
       (unless (procedure? x)
         (error 'input-filter (format "not a procedure ~s" x)))
       x)))
 
-(define runtime-file 
+(define runtime-file
   (make-parameter
     "startup.c"
     (lambda (fname)
@@ -89,7 +89,7 @@
         (error 'runtime-file (format "not a string ~s" fname)))
       fname)))
 
-(define lib-file 
+(define lib-file
   (make-parameter
     "lib.s"
     (lambda (fname)
@@ -101,7 +101,7 @@
   (make-parameter
     (current-output-port)
     (lambda (p)
-       (unless (output-port? p) 
+       (unless (output-port? p)
          (error 'compile-port (format "not an output port ~s" p)))
        p)))
 
@@ -145,3 +145,9 @@
     (parameterize ([compile-port p])
       (emit-library))
     (close-output-port p)))
+
+(define (test-expr expr)
+  (run-compile expr)                    ; output to stst.s
+  (build)                               ; make the exe out of it
+  (execute)                             ; run the executable
+  (get-string))                         ; get the string output and return it
