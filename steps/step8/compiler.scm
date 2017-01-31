@@ -193,7 +193,7 @@
 (define (emit-args-and-save si env arg1 arg2)
   (emit-expr si env arg2)
   (emit-stack-save si)
-  (emit-expr (- si wordsize) env arg1))
+  (emit-expr (stack- si) env arg1))
 
 (define (emit-args-and-save* si env arg1 arg2)
   ;; Evaluates the args, taking care of immediates.
@@ -213,7 +213,7 @@
           (begin
             (emit-expr si env arg2)          ; arg2 -> eax
             (emit-stack-save si)             ; eax  -> stack
-            (emit-expr (- si wordsize) env arg1) ; arg1 -> eax
+            (emit-expr (stack- si) env arg1) ; arg1 -> eax
             (cons #t (esp-expr si))))))
 
 ;; ======================================================================
@@ -331,7 +331,7 @@
         (emit-expr si (if is*? new-env env) (cadr b)) ; binding value -> eax
         (emit-stack-save si)                          ; save eax -> stack
         (pb (cdr bindings)              ; process the rest with new env
-            (- si wordsize)
+            (stack- si)
             (extend-env (car b) si new-env)))])))
 
 (define (emit-let  si env expr) (emit-let/* si env expr #f emit-exprs))
@@ -387,24 +387,45 @@
       (let f ([fmls fmls] [si (- wordsize)] [env env])
         (if (null? fmls)
             (emit-tail-exprs si env body)
-            (f (cdr fmls) (- si wordsize) (extend-env (car fmls) si env)))))
-    (emit-ret))) 
+            (f (cdr fmls) (stack- si) (extend-env (car fmls) si env)))))))
 
 (define (emit-app si env expr)
   (define (emit-arguments si args)
     (unless (null? args)
             (emit-expr si env (car args))
             (emit-stack-save si)
-            (emit-arguments (- si wordsize) (cdr args))))
+            (emit-arguments (stack- si) (cdr args))))
 
-  ;; We find si-wordsize to leave one spot for return address
   (let ([lbl (lookup-variable (car expr) env)])
     (unless (string? lbl)               ; else not a lambda expression
             (error 'emit-app "Unknown procedure" (car expr)))
-    (emit-arguments (- si wordsize) (cdr expr))
-    (emit-adjust-stack (+ si wordsize))
+    ;; We find si-wordsize to leave one spot for return address
+    (emit-arguments (stack- si) (cdr expr))
+    (emit-adjust-stack (stack+ si))
     (emit "    call ~a" lbl)
-    (emit-adjust-stack (- (+ si wordsize)))))
+    (emit-adjust-stack (- (stack+ si)))))
+
+(define (emit-tail-app si env expr)
+  (define (emit-arguments si args)
+    (unless (null? args)
+            (emit-expr si env (car args))
+            (emit-stack-save si)
+            (emit-arguments (stack- si) (cdr args))))
+  ;; xxx todo: what if dest == src?
+  (define (copy-arguments dest src exprs)
+    (unless (null? exprs)
+            (emit-stack-load src)
+            (emit-stack-save dest)
+            (copy-arguments (stack- dest) (stack- src) (cdr exprs))))
+
+  (let ([lbl (lookup-variable (car expr) env)])
+    (unless (string? lbl)               ; else not a lambda expression
+            (error 'emit-app "Unknown procedure" (car expr)))
+    ;; We don't need to keep any space for the return address; thus use si
+    (emit-arguments si (cdr expr))
+    (copy-arguments (- wordsize) si (cdr expr))
+    (emit "    jmp ~a // tail call" lbl)
+    (emit "")))
 
 (define (app? expr)
   (and (pair? expr) (symbol? (car expr))))
@@ -419,9 +440,7 @@
 (define (if? expr)
   (and (pair? expr) (symbol? (car expr)) (eqv? (car expr) 'if)))
 
-;; Implements either emit-if or emit-tail-if. Uses emitter to emit the
-;; code for the two actions 'consequent or 'alternative
-(define (emit-if-*tail si env expr emitter)
+(define (emit-if si env expr)
   (unless (= (length expr) 4)           ; if,test,conseq,alternative
           (error 'emit-if "Ill formed if expression" expr))
   (let ([test        (cadr   expr)]
@@ -432,14 +451,30 @@
     (emit-expr si env test)
     (emit "    cmp eax, ~s" imm/bool-false)
     (emit "    je  ~a" alt-label)
-    (emitter si env consequent)
+    (emit-expr si env consequent)
     (emit "    jmp ~a" end-label)
     (emit "~a:" alt-label)
-    (emitter si env alternative)
+    (emit-expr si env alternative)
     (emit "~a:" end-label)))
 
-(define (emit-if      si env expr) (emit-if-*tail si env expr emit-expr))
-(define (emit-tail-if si env expr) (emit-if-*tail si env expr emit-tail-expr))
+(define (emit-tail-if si env expr)
+  (unless (= (length expr) 4)           ; if,test,conseq,alternative
+          (error 'emit-if "Ill formed if expression" expr))
+  (let ([test        (cadr   expr) ]
+        [consequent  (caddr  expr) ]
+        [alternative (cadddr expr) ]
+        [alt-label   (unique-label)])
+    (emit-expr si env test)
+    (emit "    cmp eax, ~s" imm/bool-false)
+    (emit "    je  ~a" alt-label)
+    (emit "    // consequent for ~s" test)
+    (emit-tail-expr si env consequent)
+    ;; no need for a jump to the end since it is a tail call
+    (emit "~a:" alt-label)
+    (emit "    // alternative for ~s" test)
+    (emit-tail-expr si env alternative)
+    ;; No need for end label either
+    (emit "")))
 
 ;; ===== and /or =====
 (define (and-or? expr)
@@ -491,6 +526,9 @@
 (define (emit-adjust-stack inc)
   (cond [(< inc 0) (emit "    sub esp, ~a" (- inc))]
         [(> inc 0) (emit "    add esp, ~a" inc)]))
+
+(define (stack- si) (- si wordsize))
+(define (stack+ si) (+ si wordsize))
 
 ;; ==== Miscellaneous functions ====
 (define (emit-ret) (emit "    ret") (emit ""))
