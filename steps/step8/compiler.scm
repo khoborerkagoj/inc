@@ -481,33 +481,31 @@
   (and (pair? expr) (symbol? (car expr))
        (or (eqv? (car expr) 'and) (eqv? (car expr) 'or))))
 
-(define (emit-t?-and-or si env expr tail?)
+(define (emit-and-or si env expr)
   (let ([end-label (unique-label)]
-        [cmp-instr (if (eqv? (car expr) 'and) "je" "jne")]
-        [emit-last (if tail? emit-tail-expr emit-expr)])
+        [cmp-instr (if (eqv? (car expr) 'and) "je" "jne")])
     ;; no need to initialize if and/or has arguments
     (if (null? (cdr expr))
-      (begin
         (emit "    mov eax, ~s"
-              (if (eqv? (car expr) 'and) imm/bool-true imm/bool-false))
-        ((if tail? emit-ret emit-null)))
-      (begin
-        ;; and-term makes recursive call, thus needs a copy of si (as func args)
-        (let and-term ([si   si        ]
-                       [rest (cdr expr)])   ; car == 'and/'or
-          (if (null? (cdr rest))
-            (emit-last si env (car rest))
-            (begin
-              (emit-expr si env (car rest))
-              ;; We compare to #f only since it is not the last term
-              (emit "    cmp eax, ~s" imm/bool-false)
-              ;; if eax is not #f, it contains the return value
-              (emit "    ~a ~a" cmp-instr end-label)
-              (and-term si (cdr rest)))))
-        (emit "~a:" end-label)))))
+              (if (eqv? (car expr) 'and) imm/bool-true imm/bool-false)))
 
-(define (emit-tail-and-or si env expr) (emit-t?-and-or si env expr #t))
-(define (emit-and-or      si env expr) (emit-t?-and-or si env expr #f))
+    ;; and-term makes recursive call, thus needs a copy of si (as func args)
+    (let and-term ([si   si        ]
+                   [rest (cdr expr)])   ; car == 'and/'or
+      (if (not (null? rest))
+          (begin
+            (emit-expr si env (car rest))
+            ;; If (car rest) is the only term, and/or should return it.
+            ;; Thus we compare to #f only if it not the last term
+            (if (not (null? (cdr rest)))
+                (begin
+                  (emit "    cmp eax, ~s" imm/bool-false)
+                  ;; if eax is not #f, it contains the return value
+                  (emit "    ~a ~a" cmp-instr end-label)
+                  (and-term si (cdr rest)))))))
+    (emit "~a:" end-label)))
+
+(define (emit-tail-and-or si env expr) (emit-and-or si env expr) (emit-ret))
 ;; ======================================================================
 ;; Helper functions
 ;; ======================================================================
