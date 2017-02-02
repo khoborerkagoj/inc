@@ -54,3 +54,7 @@ instead of a `call`.
 If the calling procedure before a tail call has no arguments, our procedure
 `copy-arguments` will do a whole bunch of useless copies. We can skip the
 copies in this case.
+
+When in a procedure call, we can also check if some or all of the arguments are
+passed unchanged to tail-call procedure, and not go through the step of putting
+them on the stack and copying them back into the appropriate location.
