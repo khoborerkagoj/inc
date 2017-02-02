@@ -257,3 +257,31 @@ compiles, executes and then returns the value. This is essentially what
 (test-expr expr)
 => "25\n"
 ```
+### Loading expressions from file
+As we move forward with the compiler, the expressions we would
+like to test with get more complicated. As a result, it is painful to
+type them directly in the REPL. To this end, we authored a function called
+`expr-from-file` that read an expression from a file and evaluates the
+resulting string. This is available as part of `compiler.scm` starting at step
+8.
+
+Make sure you quote the expression in the file! To use, let
+us say the file `test.scm` contains the following:
+```scheme
+'(letrec ([f (lambda (n) (if (fx< n 3) 0 (g (fx- n 2) 0 1)))]
+          [g (lambda (n f1 f2)
+               (if (fxzero? n) f2 (g (fx- n 1) f2 (fx+ f1 f2))))])
+  (f 20))
+```
+which provides a procedure `f` that computes a Fibonacci number. Note that the
+`letrec` is quoted. You can then call
+`(define expr (expr-from-file "test.scm")` which will return the expression.
+You can then `(compile-program expr)` or `(test-expr expr)`. You can even
+`(eval expr)` to evaluate it in your current Scheme REPL.
+
+The implementation of `expr-from-file` is:
+```scheme
+(define (expr-from-file fn)
+  ;; Read the expression from file with name fn
+  (with-input-from-file fn (lambda () (eval (read)))))
+```

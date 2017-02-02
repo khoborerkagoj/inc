@@ -509,6 +509,11 @@
 ;; ======================================================================
 ;; Helper functions
 ;; ======================================================================
+;; ==== Utilities ====
+(define (expr-from-file fn)
+  ;; Read the expression from file with name fn
+  (with-input-from-file fn (lambda () (eval (read)))))
+
 ;; ==== Stack functions ====
 (define (esp-expr si)
   ;; An expression representing a stack value, can be used for load/save
