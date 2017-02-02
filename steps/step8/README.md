@@ -29,7 +29,7 @@ for those.
 EXIT:
   return #f;
 ```
-# Added procedure
+# Loading test expressions from a file
 Now that we are moving forward with the compiler, the expressions we would
 like to test with are getting more complicated. As a result, it is painful to
 type them directly in the REPL. To this end, we authored a function called
