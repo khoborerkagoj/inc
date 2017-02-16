@@ -12,16 +12,16 @@
   if they were inside a `begin`. All that remains is to implement `begin`,
   which is straightforward.
     * As a future enhancement, we can switch the `let` family of expressions
-      as well as the `lambda` to only accept a single expressions. Given the
-      input expression, we can transform the body of these expressions to
-      put the body expressions inside an explicit `begin`.  In this way, only
-      the procedures `emit-begin` and `emit-tail-begin` will have to handle
-      multiple expressions.
+      as well as the `lambda` to only handle emitting a single expression.
+      Given the input expression, we can transform the body of these
+      expressions to put the body expressions inside an explicit `begin`.
+      In this way, only the procedures `emit-begin` and `emit-tail-begin`
+      will have to handle multiple expressions.
 * We also need to implement the primitive `eq?` which is used in the tests for
   `set-car!` and `set-cdr!`.  This is a simple implementation, which is
   identical to the implementation of `fx=` and `char=` (`eq?` is defined as
   returning `#t` when two objects are identical; when they have the same
-  pointer.
+  pointer).
     * It would be useful to implement aliases for a primitive: for instance,
       some Scheme implementations use `fx=?` instead of `fx=`. Chez Scheme
       appears to accept both. It would be useful to define `fx=?` as an alias
@@ -50,6 +50,22 @@
       that we (implicitly) have currently for EAX.
 
 ## Vectors
+For vectors, we will have to allocate an area of size `4* N + 4`, but which 
+should be rounded up to be a multiple of 4. We can do this by realizing that
+`4*N + 4` is always a multiple of 4. Thus we check if bit 2 is set (which
+indicates that it is a multiple of 4, but not a multiple of 8). If it is, we
+add 4 to the value. For this we can use the instruction `BT`, which sets `CF`
+to the value of a given bit. We can then use `JNC` (jump if not carry) to go
+past the "rounding instruction". The rounding instruction is merely adding 4
+(this will make something that is an odd multiple of 4 an even multiple of 4,
+or in other words a multiple of 8).
+```assembly
+    BT EAX, 2      ; Check bit 2 and copy to CF
+    JNC noRounding ; If CF=0, nothing to do
+    ADD EAX, 4     ; Add 4 which makes it a multiple of 8.
+noRounding:
+    <Some other instructions>
+```
 
 ## Strings
 
