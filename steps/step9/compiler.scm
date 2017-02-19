@@ -1,4 +1,5 @@
 (load "../../src/tests-driver.scm")
+(load "../../src/tests-1.9.2-req.scm")
 (load "../../src/tests-1.9.1-req.scm")
 (load "../../src/tests-1.8-req.scm")
 (load "../../src/tests-1.7-req.scm")
@@ -9,6 +10,8 @@
 (load "../../src/tests-1.3-req.scm")
 (load "../../src/tests-1.2-req.scm")
 (load "../../src/tests-1.1-req.scm")
+
+(define emit-comment? #t)
 
 ;; ======================================================================
 ;; Primitives
@@ -231,6 +234,75 @@
   (emit "    mov edx, ~a" (esp-ptr si))
   (emit "    mov ~a, edx" (reg-ptr "eax" pair-second)))
 
+;; Vectors
+;; -------
+
+;; While the tutorial suggests make-vector with an initializer, the tests use
+;; the make-vector without an initializer. Scheme supports both forms.  In
+;; order to not lose this, we rename to make-vector-init and implement
+;; make-vector separately.
+(define-primitive (make-vector-init si env len val)
+  ;; We use EDX and EBX as scratch registers
+  ;; We could emit-args one at a time and avoid the stack, but we cannot
+  ;; be sure that the second call to emit-args will not use EBX.
+  (emit-args-and-save si env len val)   ; len in EAX, val on stack
+  (emit "    mov ebx, ~a" (esp-ptr si)) ; val in ebx
+  (emit "    mov edx, eax")             ; EDX is the working copy
+  (emit "    mov [ebp], edx")           ; [EBP] gets the length (as fixnum)
+  ;; Now that EAX is no longer used, we can use it for the return value
+  (emit "    mov eax, ebp")
+  (emit "    or eax, ~a" vector-tag)
+  (emit "    add ebp, 4")           ; Now bump ebp
+  ;; We need edx as an int now
+  (emit "    shr edx, ~a //fx->int" fx/shift)
+  ;; Update len to be odd (so len+1 is even)
+  (emit "    bt  edx, 0")               ; copy low bit to CF
+  (let ([bt-lbl   (unique-label)]
+        [done-lbl (unique-label)])
+    (emit "    jc ~a // already odd" bt-lbl)
+    (emit "    inc edx")
+    (emit "~a:" bt-lbl)                 ; bt-lbl used both for loop and bt
+    (emit "    cmp edx, 0")
+    (emit "    jz ~a" done-lbl)
+    (emit "    mov [ebp], ebx")         ; copy the value
+    (emit "    add ebp, 4")
+    (emit "    dec edx")
+    (emit "    jmp ~a // loop" bt-lbl)
+    (emit "~a:" done-lbl)))
+
+(define-primitive (make-vector si env len)
+  ;; We use EDX and EBX as scratch registers
+  (emit-expr si env len)                ; EAX <- len
+  (emit "    mov edx, eax")             ; EDX has the working copy of len
+  (emit "    mov [ebp], edx")           ; update [EBP] with len (as fixnum)
+  ;; As EAX is a fixnum, convert it into C integer
+  (emit "    sar eax, ~a // fixnum->int" fx/shift)
+  ;; Now that EAX is no longer used, we can use it for the return value
+  (emit "    mov eax, ebp")             ; EAX has return value
+  (emit "    or eax, ~a" vector-tag)    ; Tag it as a vector
+  ;; Update len to be odd (so len+1 is even)
+  (emit "    bt  edx, 0")               ; copy low bit to CF
+  (let ([bt-lbl   (unique-label)])
+    (emit "    jc ~a // already odd" bt-lbl)
+    (emit "    inc edx")
+    (emit "~a:" bt-lbl)                 ; if no adjustment required
+    ;; EDX has the (integer) adjusted length, move EBP past the vector
+    (emit "    lea ebp, [ebp + 4*edx + 4]")))
+
+(define-primitive (vector-length si env vec)
+  (emit-expr si env vec)                ; vec is in EAX
+  ;; Length is already a fixnum
+  (emit "    mov eax, [eax-~a]" vector-tag)) ; Change to pointer and deref
+
+(define-primitive (vector-ref si env vec idx)
+  (emit-comment-list 'vector-ref vec idx)
+  ;; intentionally pass args in reverse order to get idx into eax
+  (emit-args-and-save si env idx vec) ; eax <- idx; [esp-si] <- vec
+  (emit "    mov edx, ~a" (esp-ptr si)) ; edx has list pointer
+  (emit "    add eax, ~a" (fxnum-rep 1)) ; go past length
+  (emit "    mov eax, [edx - ~a + eax]" vector-tag)
+  )
+
 ;; Helper functions used for primitives
 ;; ------------------------------------
 (define (emit-binary-compare si env arg1 arg2 cmp/t cmp/f)
@@ -326,7 +398,8 @@
 ;; make sure it is within the max and min values.
 (define wordsize 4)                     ; # bytes in a word
 (define wordbits (* wordsize 8))        ; # bits  in a word
-(define fx/bits 30)
+(define fx/bits 30)                     ; # effective bits in fixnum
+(define fx/shift (- wordbits fx/bits))  ; # bits fixnum is shifted by from int
 (define fx/min-val (- 0 (bitwise-arithmetic-shift 1 (- fx/bits 1))))
 (define fx/max-val (- (bitwise-arithmetic-shift 1 (- fx/bits 1)) 1))
 (define imm/fx-mask (- (expt 2 (- wordbits fx/bits)) 1)) ; bottom 2 bits

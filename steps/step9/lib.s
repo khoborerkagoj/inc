@@ -1,3 +1,4 @@
+// -*- indent-tabs-mode: nil; tab-width: 4-*-
     .text
     .intel_syntax noprefix
     .globl _scheme_entry
@@ -23,7 +24,9 @@ _scheme_entry:
     mov [ecx + 28], esp
     mov ebp, [esp + 12]         // heap  pointer
     mov esp, [esp +  8]         // stack pointer
+    push ecx                    // free ecx up for other use
     call R_scheme_entry
+    pop  ecx                    // restore ecx
     // Restore registers
     mov ebx, [ecx +  4]
     mov esi, [ecx + 16]

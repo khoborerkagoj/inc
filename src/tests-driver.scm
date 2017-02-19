@@ -151,3 +151,8 @@
   (build)                               ; make the exe out of it
   (execute)                             ; run the executable
   (get-string))                         ; get the string output and return it
+
+(define (emit-comment-list . expr)
+  ;;  emit a comment line only if emit-comment? is #t
+  (when emit-comment?
+        (emit "    //~s" expr)))

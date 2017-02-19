@@ -50,6 +50,17 @@
       that we (implicitly) have currently for EAX.
 
 ## Vectors
+At first implementation of `make-vector`, we run into a problem: the tutorial
+specifies that `make-vector` is to be called with an initializer like 
+`(make-vector 4 #f)` but the tests specify the form without an initializer
+such as `(make-vector 4)`. Scheme specifies both forms. Rather than lose the
+implementation we did for `make-vector` with an initializer, we define a new
+primitive `make-vector-init` which implements it with an initializer. At a
+later point, we can merge the two.
+
+### Naive method for `4N+4` rounding
+*I came up with this initially, but then got a better idea. See next section*
+
 For vectors, we will have to allocate an area of size `4* N + 4`, but which 
 should be rounded up to be a multiple of 4. We can do this by realizing that
 `4*N + 4` is always a multiple of 4. Thus we check if bit 2 is set (which
@@ -66,6 +77,22 @@ or in other words a multiple of 8).
 noRounding:
     <Some other instructions>
 ```
+
+## Updating vectors to fit in 8 byte multiples
+For vectors, we should make sure our data fits in 8 byte multiples. The vector
+is of length `4N+4`, which means that`N` needs to be odd to make sure `4N+4` is
+a multiple of 8 (note that `4N+4 = 4(N+1)`, which is a multiple of 8 whenever
+`N+1` is even).
+
+Thus the code to do so (similar to the naive method above):
+```assembly
+    BT EAX, 0     ; check bit 1 and copy to CF
+    JC noRounding ; if CF (= bit 0) is 1, EAX is odd-> nothing to do
+    INC EAX       ; Now EAX is odd
+noRounding:
+    <Move on with the rest of instructions>
+```
+
 
 ## Strings
 
@@ -112,6 +139,22 @@ section "Assembly investigation" for more details.
 We move `_scheme_entry` to `lib.s` and added context save and restore; also
 move heap pointer to `EBP` and stack pointer to `ESP` as before.
 
+# Save original pointer on stack
+With our new implementation, we pass the context pointer in `ECX`, and hold it
+there for the duration of execution of `R_scheme_entry`. Rather than doing
+this, we can save `ECX` onto the stack of `R_scheme-entry` (that is, after we
+have switched the stack pointer), and restore it from the stack after we
+return.  Note that this puts a burden on us to make sure the Scheme stack is
+at exactly the same value when it returns to `scheme_entry`. This is what we
+have done so far, but if later we implement early returns (e.g. `call/cc` or
+equivalent), we will have to pay attention to restore the stack pointer to
+where it was when the continuation was created.
+
+The actual save and restore is quite simple: right before `R_scheme_entry`, we
+execute `push ECX` right before calling `R_scheme_entry`, and `pop ECX` right
+after we return. This then allows us to use `ECX` freely in our generated
+assembly.
+
 ### Assembly investigation
 * Creating functions in a new assembly file and declaring them with
   `._globl` makes them accessible. Unlike other assemblers, CLANG does 
@@ -148,14 +191,13 @@ move heap pointer to `EBP` and stack pointer to `ESP` as before.
   `cdr` is not a pair, we first print `" . "` followed by the `cdr` value.
   Both the `car` and the `cdr` (if not a pair) are printed by calls to
   `print_partial()`.
+* Added implementation for printing vectors
+
 
 # Todo
 ## 1.9.1 Cons and lists
-* Generate code for lists, improper lists
-* Begin/implicit-begin
-    * Macro transformer to make let/let\*/lambda single expression forms, and
-      use begin to generate code?
-* set-car!/set-cdr!
+* Macro transformer to make let/let\*/lambda single expression forms, and
+  use begin to generate code?
 
 ## 1.9.2 Vectors
 * vector?

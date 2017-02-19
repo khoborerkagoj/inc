@@ -70,6 +70,8 @@ static const char *getCharString(unsigned char c) {
 #define DEREF(x)  (((ptr *)(x))[0])
 #define ISPAIR(x) (((x) & data_mask) == pair_tag)
 #define ISNULL(x) ((x) == 0x3F)
+#define ISVEC(x)  (((x) & data_mask) == vector_tag)
+#define UNMASK(x) ((ptr *)((x) & ~((ptr)data_mask))) /* for all types */
 
 static void print_pair_contents(ptr x) {
 #define CAR(x) DEREF(x - 1)
@@ -106,6 +108,21 @@ static void print_partial(ptr x) {
     } else if (ISPAIR(x)) {
         fputc('(', stdout);
         print_pair_contents(x);
+        fputc(')', stdout);
+    } else if (ISVEC(x)) {
+        ptr *vec = UNMASK(x);
+        int len;
+        fputs("#(", stdout);
+        len = (int)*vec++;
+        /* Print first one with no space, then each one preceded by space */
+        if (len > 0) {
+            print_partial(*vec++);
+            len--;
+        }
+        while (len--) {
+            fputc(' ', stdout);
+            print_partial(*vec++);
+        }
         fputc(')', stdout);
     } else {
         printf ("#<unknown 0x%08x>", x);
