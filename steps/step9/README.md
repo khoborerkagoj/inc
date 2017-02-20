@@ -175,7 +175,7 @@ section "Assembly investigation" for more details.
 We move `_scheme_entry` to `lib.s` and added context save and restore; also
 move heap pointer to `EBP` and stack pointer to `ESP` as before.
 
-# <a name="ECX_save/>Save original pointer on stack
+# <a name="ECX_save"/>Save original pointer on stack
 With our new implementation, we pass the context pointer in `ECX`, and hold it
 there for the duration of execution of `R_scheme_entry`. Rather than doing
 this, we can save `ECX` onto the stack of `R_scheme-entry` (that is, after we
@@ -261,9 +261,11 @@ assembly.
 How would we process quoted lists in our compiler? Note that the expression we
 pass in is itself a quoted list. Say we want to apply the procedure `f` to the
 list `(a b c)`. This should be passed in as the expression
+
 ```scheme
 (define e '(f '(a b c)))
 ```
+
 We then find that the inner quote is represented as part of a list, i.e.
 `(cadr e) => '(a b c)`. See comments in the snippet below.
 
