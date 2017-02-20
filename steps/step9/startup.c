@@ -73,6 +73,8 @@ static const char *getCharString(unsigned char c) {
 #define ISVEC(x)  (((x) & data_mask) == vector_tag)
 #define UNMASK(x) ((ptr *)((x) & ~((ptr)data_mask))) /* for all types */
 
+#define FX2INT(x) (((int)(x)) >> fx_shift)
+
 static void print_pair_contents(ptr x) {
 #define CAR(x) DEREF(x - 1)
 #define CDR(x) DEREF(x + 3)
@@ -94,7 +96,7 @@ static void print_pair_contents(ptr x) {
 /* Used to print partial expressions */
 static void print_partial(ptr x) {
     if ((x & fx_mask) == fx_tag) {
-        printf ("%d", ((int) x) >> fx_shift);
+        printf ("%d", FX2INT(x));
     } else if (x == bool_f) {
         printf ("#f");
     } else if (x == bool_t) {
@@ -113,7 +115,8 @@ static void print_partial(ptr x) {
         ptr *vec = UNMASK(x);
         int len;
         fputs("#(", stdout);
-        len = (int)*vec++;
+        /* len is a fixnum, convert to int */
+        len = FX2INT(*vec++);
         /* Print first one with no space, then each one preceded by space */
         if (len > 0) {
             print_partial(*vec++);

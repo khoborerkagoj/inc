@@ -275,19 +275,18 @@
   (emit-expr si env len)                ; EAX <- len
   (emit "    mov edx, eax")             ; EDX has the working copy of len
   (emit "    mov [ebp], edx")           ; update [EBP] with len (as fixnum)
-  ;; As EAX is a fixnum, convert it into C integer
-  (emit "    sar eax, ~a // fixnum->int" fx/shift)
   ;; Now that EAX is no longer used, we can use it for the return value
   (emit "    mov eax, ebp")             ; EAX has return value
   (emit "    or eax, ~a" vector-tag)    ; Tag it as a vector
   ;; Update len to be odd (so len+1 is even)
-  (emit "    bt  edx, 0")               ; copy low bit to CF
+  (emit "    bt  edx, 2")               ; copy low bit to CF
   (let ([bt-lbl   (unique-label)])
     (emit "    jc ~a // already odd" bt-lbl)
-    (emit "    inc edx")
+    (emit "    add edx, 4")
     (emit "~a:" bt-lbl)                 ; if no adjustment required
     ;; EDX has the (integer) adjusted length, move EBP past the vector
-    (emit "    lea ebp, [ebp + 4*edx + 4]")))
+    ;; Note edx has the fixnum length, so bytes are 4*len, as we need
+    (emit "    lea ebp, [ebp + edx + 4]")))
 
 (define-primitive (vector-length si env vec)
   (emit-expr si env vec)                ; vec is in EAX
@@ -296,12 +295,24 @@
 
 (define-primitive (vector-ref si env vec idx)
   (emit-comment-list 'vector-ref vec idx)
-  ;; intentionally pass args in reverse order to get idx into eax
-  (emit-args-and-save si env idx vec) ; eax <- idx; [esp-si] <- vec
-  (emit "    mov edx, ~a" (esp-ptr si)) ; edx has list pointer
-  (emit "    add eax, ~a" (fxnum-rep 1)) ; go past length
-  (emit "    mov eax, [edx - ~a + eax]" vector-tag)
-  )
+  (emit-args-and-save si env vec idx) ; eax <- vec; [esp-si] <- idx
+  (emit "    mov edx, ~a" (esp-ptr si)) ; edx has idx
+  ;; Need to go past one element (to go past the "length" item before applying
+  ;; the offset of 'idx'. We also need to subtract the vector-tag (0x5) before
+  ;; we can treat it as a pointer.  We do both in one shot: add wordsize and
+  ;; subtract vector-tag.
+  (emit "    mov eax, ~a"
+        (reg-ptr "edx+eax" (- wordsize vector-tag))))
+
+(define-primitive (vector-set! si env vec idx val)
+  (emit-comment-list 'vector-set)
+  (emit-args-and-save si env idx val)   ; eax <- idx, val <- [esp-si]
+  (emit-stack-save (stack- si))         ; [esp-2*si] <- idx
+  ;; As a side effect, we return the vector
+  (emit-expr (stack- (stack- si)) env vec) ; eax <- vec ptr
+  (emit "    mov edx, ~a" (esp-ptr (stack- si)))
+  (emit "    mov ebx, ~a" (esp-ptr si))
+  (emit "    mov ~a, ebx" (reg-ptr "edx+eax" (- wordsize vector-tag))))
 
 ;; Helper functions used for primitives
 ;; ------------------------------------
@@ -428,6 +439,8 @@
 (define symbol-tag  #b011)
 (define vector-tag  #b101)
 (define string-tag  #b110)
+
+(define data-width (* 2 wordsize))      ; how many bytes a heap element uses
 
 (define pair-first  (- pair-tag))
 (define pair-second (+ pair-first wordsize))

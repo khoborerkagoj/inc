@@ -58,6 +58,12 @@ implementation we did for `make-vector` with an initializer, we define a new
 primitive `make-vector-init` which implements it with an initializer. At a
 later point, we can merge the two.
 
+We store the length as a fixnum. Note that when we are passed an index into
+the vector (as for `vector-ref` or `vector-set!`), the resulting value that
+the assembly code gets is 4 times actual index (i.e. for an index of 3, we get
+the value 12). Coincidentally, this is exactly the offset (in bytes) that we
+have to make from the base pointer, and we take advantage of the fact.
+
 ### Naive method for `4N+4` rounding
 *I came up with this initially, but then got a better idea. See next section*
 
