@@ -307,6 +307,8 @@
 (define-primitive (vector-set! si env vec idx val)
   (emit-comment-list 'vector-set)
   (emit-args-and-save si env idx val)   ; eax <- idx, val <- [esp-si]
+  ;; We cannot guarantee that emit-expr for vec will not use our
+  ;; register. Have to thus save idx onto the stack as well.
   (emit-stack-save (stack- si))         ; [esp-2*si] <- idx
   ;; As a side effect, we return the vector
   (emit-expr (stack- (stack- si)) env vec) ; eax <- vec ptr

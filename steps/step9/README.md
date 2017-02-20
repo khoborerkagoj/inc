@@ -62,7 +62,37 @@ We store the length as a fixnum. Note that when we are passed an index into
 the vector (as for `vector-ref` or `vector-set!`), the resulting value that
 the assembly code gets is 4 times actual index (i.e. for an index of 3, we get
 the value 12). Coincidentally, this is exactly the offset (in bytes) that we
-have to make from the base pointer, and we take advantage of the fact.
+have to make from the base pointer, and we take advantage of the fact. We will
+also have to make changes to startup.c to make sure that we output the vector
+properly.
+
+## Implementing `make-vector` vs `make-vector-init`
+As described in the sections below, we use the low bit of the vector's length
+to find out whether we need to increase the allocated length of the vector.
+For `make-vector-init`, we first update the head of the vector with the length
+(as a fixnum, or in other words as 4 times the actual integer length) and then
+convert the length (in `EDX` in our case) into an integer. This is done so we
+can use `dec EDX` in our loop instead of `sub EDX, 4`, which is potentially
+more efficient. Note that this would also allow us to use the `loop`
+instruction, which can also be faster. This requires us to free up the `ECX`
+register for use in our code, which we [have done](#ECX_save).
+
+For `vector-ref`, we are given the tagged pointer to the vector, as well as an
+index. The index pointer comes to us as a fixnum, whose integer value (4 times
+the logical value) is exactly the byte offset from the start of the vector.
+However, we first have to subtract the vector tag, as well as add 4 to go past
+the first part of the vector (which contains the vector length). Note that
+both the addition and subtraction are with constants, so we apply this in one
+fell swoop: put the vector pointer in `EAX`, the index (as a fixnum) in `EDX`,
+and calculate the constant `x=(4 - <vector-tag>)`. Then the value we want is in
+`[EAX+EDX+x]`.
+
+For `vector-set!`, we are given three arguments. Our procedure
+`emit-args-and-save` only accepts two, so we first pass it with two arguments.
+Since we cannot be sure what registers `emit-expr` for the third argument will
+use, we will have to save both the arguments on the stack. We also need to
+ensure that the stack pointer is adjusted before calling `emit-expr` for the 
+third argument.
 
 ### Naive method for `4N+4` rounding
 *I came up with this initially, but then got a better idea. See next section*
@@ -145,7 +175,7 @@ section "Assembly investigation" for more details.
 We move `_scheme_entry` to `lib.s` and added context save and restore; also
 move heap pointer to `EBP` and stack pointer to `ESP` as before.
 
-# Save original pointer on stack
+# <a name="ECX_save/>Save original pointer on stack
 With our new implementation, we pass the context pointer in `ECX`, and hold it
 there for the duration of execution of `R_scheme_entry`. Rather than doing
 this, we can save `ECX` onto the stack of `R_scheme-entry` (that is, after we
