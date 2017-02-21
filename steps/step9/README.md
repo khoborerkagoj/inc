@@ -247,30 +247,8 @@ assembly.
   `print_partial()`.
 * Added implementation for printing vectors
 
-
-# Todo
-## 1.9.1 Cons and lists
-* Macro transformer to make let/let\*/lambda single expression forms, and
-  use begin to generate code?
-
-## 1.9.2 Vectors
-* vector?
-* make-vector?
-* vector-length
-* vector-ref
-* vector-set!
-
-## 1.9.3 Strings
-* string?
-* make-string
-* string-set!
-* string-ref
-
-
 ## Other
-* Create geck for more efficient code generation
 * Create geck for save ecx in stack, if not otherwise done
-* Try to use more registers
 * aliases for primitives, e.g. fx> => fx>?
 * Error checking geck: e.g. function call with incorrect # parameters still
   generates but obviously with incorrect answers.
