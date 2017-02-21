@@ -1,5 +1,7 @@
 #include <windows.h>
 #include <stdio.h>
+#include <ctype.h>
+
 /* define all scheme constants */
 #define bool_f      0x2F
 #define bool_t      0x6F
@@ -67,11 +69,14 @@ static const char *getCharString(unsigned char c) {
 }
 
 /* x is an unigned int which is actually a pointer. Dereference it */
-#define DEREF(x)  (((ptr *)(x))[0])
-#define ISPAIR(x) (((x) & data_mask) == pair_tag)
-#define ISNULL(x) ((x) == 0x3F)
-#define ISVEC(x)  (((x) & data_mask) == vector_tag)
-#define UNMASK(x) ((ptr *)((x) & ~((ptr)data_mask))) /* for all types */
+#define MASK(x)     ((x) & data_mask)                  /* only data tag bits */
+#define UNMASK(x)   ((ptr *)((x) & ~((ptr)data_mask))) /* for all types */
+
+#define DEREF(x)    (((ptr *)(x))[0])
+#define ISPAIR(x)   (MASK(x) == pair_tag)
+#define ISNULL(x)   ((x) == 0x3F)
+#define ISVEC(x)    (MASK(x) == vector_tag)
+#define ISSTR(x)    (MASK(x) == string_tag)
 
 #define FX2INT(x) (((int)(x)) >> fx_shift)
 
@@ -127,6 +132,17 @@ static void print_partial(ptr x) {
             print_partial(*vec++);
         }
         fputc(')', stdout);
+    } else if (ISSTR(x)) {
+        ptr *str = UNMASK(x);
+        int len = FX2INT(*str++);
+        unsigned char *c = (unsigned char *)str;
+        fputc('"', stdout);
+        while (len-- > 0) {
+            if (*c == '"' || *c == '\\')
+                fputc('\\', stdout);
+            fputc(*c++, stdout);
+        }
+        fputc('"', stdout);
     } else {
         printf ("#<unknown 0x%08x>", x);
     }

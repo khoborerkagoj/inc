@@ -1,4 +1,5 @@
 (load "../../src/tests-driver.scm")
+(load "../../src/tests-1.9.3-req.scm")
 (load "../../src/tests-1.9.2-req.scm")
 (load "../../src/tests-1.9.1-req.scm")
 (load "../../src/tests-1.8-req.scm")
@@ -309,12 +310,83 @@
   (emit-args-and-save si env idx val)   ; eax <- idx, val <- [esp-si]
   ;; We cannot guarantee that emit-expr for vec will not use our
   ;; register. Have to thus save idx onto the stack as well.
-  (emit-stack-save (stack- si))         ; [esp-2*si] <- idx
+  (emit-stack-save (stack- si))         ; [esp-si-4] <- idx
   ;; As a side effect, we return the vector
   (emit-expr (stack- (stack- si)) env vec) ; eax <- vec ptr
-  (emit "    mov edx, ~a" (esp-ptr (stack- si)))
-  (emit "    mov ebx, ~a" (esp-ptr si))
+  (emit "    mov edx, ~a" (esp-ptr (stack- si))) ; edx <- idx (fixnum)
+  (emit "    mov ebx, ~a" (esp-ptr si))          ; ebx <- val
+  ;; Use (wordsize - string-tag) to go past the length item
   (emit "    mov ~a, ebx" (reg-ptr "edx+eax" (- wordsize vector-tag))))
+
+;; Strings
+;; -------
+(define-primitive (make-string si env len)
+  (emit-comment-list 'make-string len)
+  ;; We use EDX and EBX as scratch registers
+  (emit-expr si env len)                ; EAX <- len
+  (emit "    mov edx, eax")             ; EDX has the working copy of len
+  (emit "    mov [ebp], edx")           ; update [EBP] with len (as fixnum)
+  ;; Now that EAX is no longer used, we can use it for the return value
+  (emit "    mov eax, ebp")             ; EAX has return value
+  (emit "    or eax, ~a" string-tag)    ; Tag it as a string
+  (emit "    shr edx, 4")               ; convert EDX -> int
+  ;; Update len to be a multiple of 4
+  (emit "    test edx, ~a" 3)           ; are bottom two bits 0?
+  (let ([twobits-lbl (unique-label)]
+        [odd4-lbl    (unique-label)])
+    (emit "    jz ~a" twobits-lbl)      ; they are, skip to next step
+    (emit "    and edx, ~a" #xFFFFFFFC) ; else remove bottom two bits ...
+    (emit "    add edx, 4")             ; ... and add 4
+    (emit "~a: // multiple of 4" twobits-lbl) ; if no adjustment required
+    ;; Now we have a multiple of 4. Check that it is an odd multiple.
+    (emit "    bt edx, 2")              ; if bit 2 of edx is ...
+    (emit "    jc ~a" odd4-lbl)         ; ... 1, nothing to do
+    (emit "    add edx, 4")             ; else make it one
+    (emit "~a: // odd multiple" odd4-lbl))
+  ;; We now have edx that is an odd multiple of 4, ebp still points to the
+  ;; original value. Bump EBP past the length and string
+  (emit "    lea ebp, [ebp+edx+4]"))
+
+(define-primitive (string-length si env str)
+  (emit-expr si env str)                     ; str is in EAX
+  ;; Length is already a fixnum
+  (emit "    mov eax, [eax-~a]" string-tag)) ; Change to pointer and deref
+
+(define-primitive (string-ref si env str idx)
+  (emit-comment-list 'string-ref str idx)
+  (emit-args-and-save si env str idx) ; eax <- str; [esp-si] <- idx
+  (emit "    mov edx, ~a" (esp-ptr si)) ; edx has idx (as fixnum)
+  (emit "    shr edx, ~a" fx/shift)     ; edx has idx in bytes
+  (emit "    xor ebx, ebx")             ; set ebx to 0 before stuffing bl
+  ;; Need to go past one element (to go past the "length" item before applying
+  ;; the offset of 'idx'. We also need to subtract the string-tag before
+  ;; we can treat it as a pointer.  We do both in one shot: add wordsize and
+  ;; subtract string-tag.
+  (emit "    mov bl, ~a"
+        (reg-ptr "edx+eax" (- wordsize string-tag)))
+  ;; We no longer need the string pointer (EAX)
+  (emit "    mov eax, ebx")
+  ;; Now convert eax to a char
+  (emit "    shl eax, 8")
+  (emit "    or  eax, ~a" imm/char-tag))
+
+(define-primitive (string-set! si env str idx val)
+  (emit-comment-list 'string-set 's idx val)
+  (emit-args-and-save si env idx val)   ; eax <- idx, val <- [esp-si]
+  ;; We cannot guarantee that emit-expr for vec will not use our
+  ;; register. Have to thus save idx onto the stack as well.
+  (emit-stack-save (stack- si))         ; [esp-si-4] <- idx
+  ;; As a side effect, we return the vector
+  (emit-expr (stack- (stack- si)) env str) ; eax <- vec ptr
+  (emit "    mov edx, ~a" (esp-ptr (stack- si))) ; edx <- idx (fixnum)
+  (emit "    shr edx, ~a" fx/shift)              ; ebx -> int
+
+  (emit "    mov ebx, ~a" (esp-ptr si))          ; ebx <- val
+  ;; Convert to a byte
+  (emit "    shr ebx, 8")
+  ;; as we use bl below, we don't need to AND (only put the lowest byte)
+  ;; Use (wordsize - string-tag) to go past the length item
+  (emit "    mov ~a, bl" (reg-ptr "edx+eax" (- wordsize string-tag))))
 
 ;; Helper functions used for primitives
 ;; ------------------------------------

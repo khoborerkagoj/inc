@@ -191,7 +191,7 @@ execute `push ECX` right before calling `R_scheme_entry`, and `pop ECX` right
 after we return. This then allows us to use `ECX` freely in our generated
 assembly.
 
-### Assembly investigation
+## Assembly investigation
 * Creating functions in a new assembly file and declaring them with
   `._globl` makes them accessible. Unlike other assemblers, CLANG does 
   not appear to need a directive `extrn` or similar to declare external
