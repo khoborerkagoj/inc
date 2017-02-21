@@ -66,7 +66,7 @@ have to make from the base pointer, and we take advantage of the fact. We will
 also have to make changes to startup.c to make sure that we output the vector
 properly.
 
-## Implementing `make-vector` vs `make-vector-init`
+### Implementing `make-vector` vs `make-vector-init`
 As described in the sections below, we use the low bit of the vector's length
 to find out whether we need to increase the allocated length of the vector.
 For `make-vector-init`, we first update the head of the vector with the length
@@ -114,7 +114,7 @@ noRounding:
     <Some other instructions>
 ```
 
-## Updating vectors to fit in 8 byte multiples
+### Updating vectors to fit in 8 byte multiples
 For vectors, we should make sure our data fits in 8 byte multiples. The vector
 is of length `4N+4`, which means that`N` needs to be odd to make sure `4N+4` is
 a multiple of 8 (note that `4N+4 = 4(N+1)`, which is a multiple of 8 whenever
@@ -129,8 +129,26 @@ noRounding:
     <Move on with the rest of instructions>
 ```
 
-
 ## Strings
+Strings are quite similar to vectors, but the length of each element in the
+string is 1 byte instead of 4. This makes the rounding to a multiple of 8
+slightly more complex. Overall, we would like the length to be an odd multiple
+of 4, just like we did before for vectors.  Additionally, we will stuff the
+length into the string as a fixnum (integer\*4), but then we convert it
+back to an integer by right-shifting by 2. We cannot take advantage of the
+fact that fixnum conversion (multiplication by 4) is the same as the number of
+bytes we need to offset ebp by. After the conversion to integer is done, we
+make sure that the length is an odd multiple of 4 by a two step process:
+* First ensure that the length is a multiple of 4: if the last two bits are
+  non-zero, make them zero and add 4. Otherwise, nothing to do.
+* We now know that the (potentially) adjusted length is a multiple of 4. We
+  check that it is an odd multiple of 4 by the same process we did before.
+
+
+For `string-ref` and `string-set!`, two things concern us: the offsets will be
+in bytes, and we will have to deal with that (earlier everything was multiples
+of 4). Secondly, we will be reading and writing bytes from/to the string. This
+means that we will have to convert from a byte to a char or vice-versa.
 
 ## Bugs
 * There is a bug in function definitions; we do not check that the lambda

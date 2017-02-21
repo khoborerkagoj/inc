@@ -335,7 +335,7 @@
   (let ([twobits-lbl (unique-label)]
         [odd4-lbl    (unique-label)])
     (emit "    jz ~a" twobits-lbl)      ; they are, skip to next step
-    (emit "    and edx, ~a" #xFFFFFFFC) ; else remove bottom two bits ...
+    (emit "    and edx, 0xFFFFFFFC")    ; else remove bottom two bits ...
     (emit "    add edx, 4")             ; ... and add 4
     (emit "~a: // multiple of 4" twobits-lbl) ; if no adjustment required
     ;; Now we have a multiple of 4. Check that it is an odd multiple.
