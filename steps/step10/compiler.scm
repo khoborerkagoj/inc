@@ -793,12 +793,17 @@
 (define (emit-null . x) #f)
 
 ;; ==== Utility functions ====
-(define unique-label
+(define unique-count
   (let ([count 0])
     (lambda ()
-      (let ([L (format "L_~s" count)])
-        (set! count (+ 1 count))
-        L))))
+      (set! count (+ 1 count))
+      count)))
+
+(define (unique-label)
+  (format "L_~s" (unique-count)))
+
+(define (unique-symbol)
+  (string->symbol (format "fqz_~s" (unique-count))))
 
 (define (tagged-list? tag expr)
   (and (list? expr) (pair? expr) (symbol? (car expr)) (eqv? tag (car expr))))
@@ -823,7 +828,7 @@
 
 ;; ==== Transformation ====
 (define specials '(if and or cond lambda begin
-                      define let let* letrec letrec*))
+                   define let let* letrec letrec*))
 (define (transform expr)
   (define (freevars fmls fv expr)
     ;; if expr is a lambda, skip it
@@ -845,10 +850,27 @@
   (define (transform-lambda expr)
     (let ([fmls (cadr expr)] [body (cddr expr)])
       (append
-       (list 'code (cadr expr) (freevars fmls '()  body)) (transform body))))
+       (list 'lambda (cadr expr) (freevars fmls '() body)) (transform body))))
   (cond
    [(lambda? expr) (transform-lambda expr)]
    [(pair? expr) (map* transform expr)]
+   [else expr]))
+
+(define lbl-list '())
+(define (lift expr)
+  (display (format "lift ~a\n" expr))
+  (cond
+   [(lambda? expr)
+    (let* ([lbl   (unique-symbol)]
+           [fmls  (cadr  expr)]
+           [fv    (caddr expr)]
+           [lbody (lift (cdddr expr))]
+           [nlamb (append (list 'lambda fmls fv) lbody)])
+      (display (format "ex ~a fmls ~a fv ~a lbody ~a\n" expr fmls fv lbody))
+      (set! lbl-list (cons (cons lbl (list nlamb)) lbl-list))
+      (cons 'closure (cons lbl fv)))     ; return value
+    ]
+   [(pair? expr) (map* lift expr)]
    [else expr]))
 
 ;; ======================================================================
