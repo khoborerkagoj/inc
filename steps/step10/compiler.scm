@@ -830,13 +830,21 @@
 (define specials '(if and or cond lambda begin
                    define let let* letrec letrec*))
 (define (transform expr)
+  ;; These apply only to the untransformed lambda.
+  (define lambda-fmls cadr)
+  (define lambda-body cddr)
   (define (freevars fmls fv expr)
     ;; if expr is a lambda, skip it
     ;; if it is a list, recurse on it
     ;; if it is a symbol, not a primcall, or a special form
     ;;   (if and or cond lambda begin define), add to freevars if not formal
-    (cond [(lambda? expr) fv]
-           [(tagged-list? 'code expr) fv]
+    (cond [(lambda? expr)
+           ;; We look at freevars in the lambda that don't otherwise appear in
+           ;; its formals list. However, they may appear in our formals list
+           ;; or our freevars list. So, if we are in a nested lambda L, we add
+           ;; a free var if it does not appear in L's formals, our formals or
+           ;; our already known freevars
+           (freevars (append fmls (lambda-fmls expr)) fv (lambda-body expr))]
            ;; We have to get the freevars out of the first expression,
            ;; and pass the extended list to the cdr
            [(pair? expr) (let ([fv (freevars fmls fv (car expr))])
@@ -856,22 +864,24 @@
    [(pair? expr) (map* transform expr)]
    [else expr]))
 
-(define lbl-list '())
 (define (lift expr)
-  (display (format "lift ~a\n" expr))
-  (cond
-   [(lambda? expr)
-    (let* ([lbl   (unique-symbol)]
-           [fmls  (cadr  expr)]
-           [fv    (caddr expr)]
-           [lbody (lift (cdddr expr))]
-           [nlamb (append (list 'lambda fmls fv) lbody)])
-      (display (format "ex ~a fmls ~a fv ~a lbody ~a\n" expr fmls fv lbody))
-      (set! lbl-list (cons (cons lbl (list nlamb)) lbl-list))
-      (cons 'closure (cons lbl fv)))     ; return value
-    ]
-   [(pair? expr) (map* lift expr)]
-   [else expr]))
+  (define lbl-list '())
+  (define (lift-rec expr)
+    (cond
+     [(lambda? expr)
+      (let* ([lbl   (unique-symbol)]
+             [fmls  (cadr  expr)]
+             [fv    (caddr expr)]
+             [lbody (lift-rec (cdddr expr))]
+             [nlamb (append (list 'lambda fmls fv) lbody)])
+        (set! lbl-list (cons (cons lbl (list nlamb)) lbl-list))
+        (cons 'closure (cons lbl fv)))     ; return value
+      ]
+     [(pair? expr) (map* lift-rec expr)]
+     [else expr]))
+  (set! lbl-list '())
+  (let ([lexpr (lift-rec expr)])
+    (cons 'letrec (cons lbl-list lexpr))))
 
 ;; ======================================================================
 ;; Main program
