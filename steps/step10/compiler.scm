@@ -881,7 +881,7 @@
      [else expr]))
   (set! lbl-list '())
   (let ([lexpr (lift-rec expr)])
-    (cons 'letrec (cons lbl-list lexpr))))
+    (cons 'letrec (cons lbl-list (list lexpr)))))
 
 ;; ======================================================================
 ;; Main program
