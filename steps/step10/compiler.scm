@@ -310,10 +310,10 @@
   (emit-args-and-save si env idx val)   ; eax <- idx, val <- [esp-si]
   ;; We cannot guarantee that emit-expr for vec will not use our
   ;; register. Have to thus save idx onto the stack as well.
-  (emit-stack-save (stack- si))         ; [esp-si-4] <- idx
+  (emit-stack-save (word- si))         ; [esp-si-4] <- idx
   ;; As a side effect, we return the vector
-  (emit-expr (stack- (stack- si)) env vec) ; eax <- vec ptr
-  (emit "    mov edx, ~a" (esp-ptr (stack- si))) ; edx <- idx (fixnum)
+  (emit-expr (word- (word- si)) env vec) ; eax <- vec ptr
+  (emit "    mov edx, ~a" (esp-ptr (word- si))) ; edx <- idx (fixnum)
   (emit "    mov ebx, ~a" (esp-ptr si))          ; ebx <- val
   ;; Use (wordsize - string-tag) to go past the length item
   (emit "    mov ~a, ebx" (reg-ptr "edx+eax" (- wordsize vector-tag))))
@@ -375,10 +375,10 @@
   (emit-args-and-save si env idx val)   ; eax <- idx, val <- [esp-si]
   ;; We cannot guarantee that emit-expr for vec will not use our
   ;; register. Have to thus save idx onto the stack as well.
-  (emit-stack-save (stack- si))         ; [esp-si-4] <- idx
+  (emit-stack-save (word- si))         ; [esp-si-4] <- idx
   ;; As a side effect, we return the vector
-  (emit-expr (stack- (stack- si)) env str) ; eax <- vec ptr
-  (emit "    mov edx, ~a" (esp-ptr (stack- si))) ; edx <- idx (fixnum)
+  (emit-expr (word- (word- si)) env str) ; eax <- vec ptr
+  (emit "    mov edx, ~a" (esp-ptr (word- si))) ; edx <- idx (fixnum)
   (emit "    shr edx, ~a" fx/shift)              ; ebx -> int
 
   (emit "    mov ebx, ~a" (esp-ptr si))          ; ebx <- val
@@ -419,7 +419,7 @@
 (define (emit-args-and-save si env arg1 arg2)
   (emit-expr si env arg2)
   (emit-stack-save si)
-  (emit-expr (stack- si) env arg1))
+  (emit-expr (word- si) env arg1))
 
 (define (emit-args-and-save* si env arg1 arg2)
   ;; Evaluates the args, taking care of immediates.
@@ -439,7 +439,7 @@
           (begin
             (emit-expr si env arg2)          ; arg2 -> eax
             (emit-stack-save si)             ; eax  -> stack
-            (emit-expr (stack- si) env arg1) ; arg1 -> eax
+            (emit-expr (word- si) env arg1) ; arg1 -> eax
             (cons #t (esp-ptr si))))))
 
 ;; ======================================================================
@@ -556,7 +556,10 @@
 ;; variable reference is simply loading it into eax from its stack position.
 (define (emit-vbl-ref env var)
   (let ([si (lookup-variable var env)])
-    (if (integer? si) (emit-stack-load si)
+    (if (integer? si)
+        ;; emit-stack-load generalized; negative env values come from esp,
+        ;; others from edi (closure free vars)
+        (emit "    mov eax, ~a" (reg-ptr (if (< si 0) "esp" "edi") si))
         (error 'emit-variable "Variable not found" var))))
 (define (emit-tail-vbl-ref env var)
   (emit-vbl-ref env var) (emit-ret))
@@ -583,7 +586,7 @@
         (emit-expr si (if is*? new-env env) (cadr b)) ; binding value -> eax
         (emit-stack-save si)                          ; save eax -> stack
         (pb (cdr bindings)              ; process the rest with new env
-            (stack- si)
+            (word- si)
             (extend-env (car b) si new-env)))])))
 
 (define (emit-let  si env expr) (emit-let/* si env expr #f emit-exprs))
@@ -622,53 +625,66 @@
   ;; can be used with the given environment. This allows it to be used in
   ;; the for-each in emit-letrec.
   (lambda (expr label lvar)
-    ;; When processing the lambda expression, we can encounter either a
-    ;; formal, which will be part of the stack (and whose env value will be
-    ;; an integer) or a reference to another lambda (whose env value will be
-    ;; its label). For a reference to a lambda, we will have to generate a
-    ;; call to the given label. We first build up the list of formals with
+    ;; When processing the lambda expression, we can encounter:
+    ;; * a formal, which is part of the stack (and whose env value is a
+    ;;   negative integer)
+    ;; * a free variable, whose env value is a non-negative integer
+    ;; * a reference to another lambda (whose env value will be
+    ;;   its label).
+    ;;
+    ;; For a reference to a lambda, we will have to generate a call to the
+    ;; given label. We first build up the list of formals and free vars with
     ;; the given environment and then generate the body expression with the
     ;; new environment. This is similar to a let expression.
     (emit "")
     (emit "// ~a: ~s" lvar (cadr expr))
     (emit-function-header label)
-    (let ([fmls (cadr expr)]
-          [body (cddr expr)])
+    (let ([fmls (cadr  expr)]
+          [fvs  (caddr expr)]
+          [body (cdddr expr)])
 
       ;; si starts at -wordsize, since esp is updated for each call
-      (let f ([fmls fmls] [si (- wordsize)] [env env])
+      (let fm ([fmls fmls] [si (- wordsize)] [env env])
         (if (null? fmls)
-            (emit-tail-exprs si env body)
-            (f (cdr fmls) (stack- si) (extend-env (car fmls) si env)))))))
+            ;; Once fmls are exhausted, go on to freevars
+            ;; env for freevars starts at +wordsize, since the first cell
+            ;; is for the location
+            (let fv ([fvs fvs ] [bp 0] [env env])
+              (if (null? fvs)
+                  ;; Generate code for body
+                  (emit-tail-exprs si env body)
+                  ;; keep extending env
+                  (fv (cdr fvs) (word+ bp) (extend-env (car fvs) bp env))))
+            (fm (cdr fmls) (word- si) (extend-env (car fmls) si env)))))))
 
 (define (emit-app si env expr)
   (define (emit-arguments si args)
     (unless (null? args)
             (emit-expr si env (car args))
             (emit-stack-save si)
-            (emit-arguments (stack- si) (cdr args))))
+            (emit-arguments (word- si) (cdr args))))
 
   (let ([lbl (lookup-variable (car expr) env)])
     (unless (string? lbl)               ; else not a lambda expression
             (error 'emit-app "Unknown procedure" (car expr)))
     ;; We find si-wordsize to leave one spot for return address
-    (emit-arguments (stack- si) (cdr expr))
-    (emit-adjust-stack (stack+ si))
+    (emit-arguments (word- si) (cdr expr))
+    (emit-adjust-stack (word+ si))
     (emit "    call ~a" lbl)
-    (emit-adjust-stack (- (stack+ si)))))
+    (emit-adjust-stack (- (word+ si)))))
 
 (define (emit-tail-app si env expr)
   (define (emit-arguments si args)
     (unless (null? args)
             (emit-expr si env (car args))
             (emit-stack-save si)
-            (emit-arguments (stack- si) (cdr args))))
+            (emit-arguments (word- si) (cdr args))))
   ;; xxx todo: what if dest == src?
   (define (copy-arguments dest src exprs)
     (unless (null? exprs)
             (emit-stack-load src)
             (emit-stack-save dest)
-            (copy-arguments (stack- dest) (stack- src) (cdr exprs))))
+            (copy-arguments (word- dest) (word- src) (cdr exprs))))
 
   (let ([lbl (lookup-variable (car expr) env)])
     (unless (string? lbl)               ; else not a lambda expression
@@ -690,7 +706,7 @@
 ;; ======================================================================
 ;; ====== if =====
 (define (if? expr)
-  (tagged-list 'if expr))
+  (tagged-list? 'if expr))
 
 (define (emit-if si env expr)
   (unless (= (length expr) 4)           ; if,test,conseq,alternative
@@ -730,7 +746,7 @@
 
 ;; ===== and /or =====
 (define (and-or? expr)
-  (or (tagged-list? 'and expr) (tagged-list 'or expr)))
+  (or (tagged-list? 'and expr) (tagged-list? 'or expr)))
 
 (define (emit-and-or si env expr)
   (let ([end-label (unique-label)]
@@ -783,8 +799,8 @@
   (cond [(< inc 0) (emit "    sub esp, ~a" (- inc))]
         [(> inc 0) (emit "    add esp, ~a" inc)]))
 
-(define (stack- si) (- si wordsize))
-(define (stack+ si) (+ si wordsize))
+(define (word- si) (- si wordsize))
+(define (word+ si) (+ si wordsize))
 
 ;; ==== Miscellaneous functions ====
 (define (emit-ret) (emit "    ret") (emit ""))
@@ -910,10 +926,12 @@
 (define (emit-expr si env expr)
   (cond
    [(immediate? expr) (emit-immediate        expr)]
-   [(variable?  expr) (emit-vbl-ref      env expr)]
    [(if?        expr) (emit-if        si env expr)]
    [(begin?     expr) (emit-begin     si env expr)]
    [(primcall?  expr) (emit-primcall  si env expr)]
+   ;; variable? needs to come after primcall? since variables can now be
+   ;; function calls
+   [(variable?  expr) (emit-vbl-ref      env expr)]
    [(let?       expr) (emit-let       si env expr)]
    [(let*?      expr) (emit-let*      si env expr)]
    [(and-or?    expr) (emit-and-or    si env expr)]
@@ -926,10 +944,10 @@
 (define (emit-tail-expr si env expr)
   (cond
    [(immediate? expr) (emit-tail-immediate        expr)]
-   [(variable?  expr) (emit-tail-vbl-ref      env expr)]
    [(if?        expr) (emit-tail-if        si env expr)]
    [(begin?     expr) (emit-tail-begin     si env expr)]
    [(primcall?  expr) (emit-tail-primcall  si env expr)]
+   [(variable?  expr) (emit-tail-vbl-ref      env expr)]
    [(let?       expr) (emit-tail-let       si env expr)]
    [(let*?      expr) (emit-tail-let*      si env expr)]
    [(and-or?    expr) (emit-tail-and-or    si env expr)]
@@ -946,6 +964,7 @@
   (emit "    .text")
   (emit "    .intel_syntax noprefix")
   (emit "    .globl R_scheme_entry")
-  (if (letrec? expr)
-      (emit-letrec expr)          ; which eventually calls emit-scheme-entry
-      (emit-scheme-entry '() (list expr))))
+  (emit-letrec (lift (transform expr))))
+  ;(if (letrec? expr)
+  ;    (emit-letrec expr)          ; which eventually calls emit-scheme-entry
+  ;    (emit-scheme-entry '() (list expr))))
