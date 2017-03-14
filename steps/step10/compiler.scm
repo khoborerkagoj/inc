@@ -695,6 +695,33 @@
     (emit "    jmp ~a // tail call" lbl)
     (emit "")))
 
+(define (closure? expr)
+  (and (tagged-list? 'closure expr) (> (length expr) 1)))
+
+(define (emit-closure si env expr)
+  (apply emit-comment-list expr)
+  (apply emit-comment-list env)
+  (emit "    mov [ebp], ~a" (lookup-variable (cadr expr) env))
+  (let cl-args ([vars (cddr expr)] [bp (word+ 0)])
+    (unless (null? vars)
+            (emit-comment-list (car vars))
+            (emit-stack-load (lookup-variable (car vars) env))
+            (emit "    mov ~a, eax" (reg-ptr "ebp" bp))
+            (cl-args (cdr vars) (word+ bp))))
+  (emit "    mov eax, ebp")
+  (emit "    and eax, ~a" closure-tag)
+  ;; The length of the closure includes the symbol closure. If this is odd,
+  ;; then the number of arguments is even, and is one less than the length. If
+  ;; this is even, the number of arguments is odd, and the desired length is
+  ;; the length of the closure expression.
+  (let ([clen (length expr)])
+    (emit "    add ebp, ~a"
+          (* wordsize (if (odd? clen) (- clen 1) clen)))))
+
+(define (emit-tail-closure si env expr)
+  (emit-closure si env expr)
+  (emit-ret))
+
 (define (app? expr)
   (and (pair? expr) (symbol? (car expr))))
 
@@ -926,12 +953,11 @@
 (define (emit-expr si env expr)
   (cond
    [(immediate? expr) (emit-immediate        expr)]
+   [(variable?  expr) (emit-vbl-ref      env expr)]
+   [(closure?   expr) (emit-closure   si env expr)]
    [(if?        expr) (emit-if        si env expr)]
    [(begin?     expr) (emit-begin     si env expr)]
    [(primcall?  expr) (emit-primcall  si env expr)]
-   ;; variable? needs to come after primcall? since variables can now be
-   ;; function calls
-   [(variable?  expr) (emit-vbl-ref      env expr)]
    [(let?       expr) (emit-let       si env expr)]
    [(let*?      expr) (emit-let*      si env expr)]
    [(and-or?    expr) (emit-and-or    si env expr)]
@@ -944,10 +970,11 @@
 (define (emit-tail-expr si env expr)
   (cond
    [(immediate? expr) (emit-tail-immediate        expr)]
+   [(variable?  expr) (emit-tail-vbl-ref      env expr)]
+   [(closure?   expr) (emit-tail-closure   si env expr)]
    [(if?        expr) (emit-tail-if        si env expr)]
    [(begin?     expr) (emit-tail-begin     si env expr)]
    [(primcall?  expr) (emit-tail-primcall  si env expr)]
-   [(variable?  expr) (emit-tail-vbl-ref      env expr)]
    [(let?       expr) (emit-tail-let       si env expr)]
    [(let*?      expr) (emit-tail-let*      si env expr)]
    [(and-or?    expr) (emit-tail-and-or    si env expr)]
