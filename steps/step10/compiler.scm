@@ -657,6 +657,14 @@
                   (fv (cdr fvs) (word+ bp) (extend-env (car fvs) bp env))))
             (fm (cdr fmls) (word- si) (extend-env (car fmls) si env)))))))
 
+;; The first argument of expr should be the function pointer. This will either
+;; be a closure, or a symbol (variable) representing the closure. Either way,
+;; we can evaluate the argument and then eax will contain the pointer to the
+;; closure.  Then dump the value of edi into the stack and copy eax to edi.
+;; While evaluating the arguments, if we have to make another procedure call,
+;; the value of edi will be saved and restored. Thus at the end of argument
+;; processing, all variables will be on the stack and EDI will have the
+;; correct value. Still need to figure out what to do for a tail call.
 (define (emit-app si env expr)
   (define (emit-arguments si args)
     (unless (null? args)
@@ -723,7 +731,7 @@
   (emit-ret))
 
 (define (app? expr)
-  (and (pair? expr) (symbol? (car expr))))
+  (and (pair? expr) (or (symbol? (car expr)) (closure? (car expr)))))
 
 (define (make-initial-env symbols values)
   (map cons symbols values))
