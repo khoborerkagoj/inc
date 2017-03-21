@@ -647,9 +647,9 @@
       (let fm ([fmls fmls] [si (- wordsize)] [env env])
         (if (null? fmls)
             ;; Once fmls are exhausted, go on to freevars
-            ;; env for freevars starts at +wordsize, since the first cell
+            ;; env for freevars starts at wordsize, since the first cell
             ;; is for the location
-            (let fv ([fvs fvs ] [bp 0] [env env])
+            (let fv ([fvs fvs ] [bp wordsize] [env env])
               (if (null? fvs)
                   ;; Generate code for body
                   (emit-tail-exprs si env body)
@@ -672,14 +672,28 @@
             (emit-stack-save si)
             (emit-arguments (word- si) (cdr args))))
 
-  (let ([lbl (lookup-variable (car expr) env)])
-    (unless (string? lbl)               ; else not a lambda expression
-            (error 'emit-app "Unknown procedure" (car expr)))
-    ;; We find si-wordsize to leave one spot for return address
-    (emit-arguments (word- si) (cdr expr))
-    (emit-adjust-stack (word+ si))
-    (emit "    call ~a" lbl)
-    (emit-adjust-stack (- (word+ si)))))
+  ;; The first argument of expr is the function, which is either a closure
+  ;; expression or a variable referring to a closure expression (on the heap
+  ;; or the stack). In either case, we emit the expressions including the
+  ;; first expression. This will cause the closure pointer to be generated in
+  ;; si. As we have to leave two slots in the stack before populating the
+  ;; function arguments, we decrement the stack pointer before generating the
+  ;; expression. This means we will have one free slot, one slot used by the
+  ;; closure pointer, and then the function arguments (which are thus in the
+  ;; correct position).
+  ;;
+  ;; We then adjust the stack appropriately and push the old value of edi onto
+  ;; the stack (which esp now points to), using up one of the two free slots.
+  ;; [esp+4] then contains the new edi value, which we move into edi. We can
+  ;; load the value of edi and jump to it.
+  (emit-arguments (word- si) expr)
+  (emit-adjust-stack (word+ si))
+  (emit "    push edi")
+  (emit "    mov edi, ~a" (esp-ptr (- wordsize)))
+  (emit "    sub edi, ~a" closure-tag)
+  (emit "    call [edi]")
+  (emit "    pop edi")
+  (emit-adjust-stack (- (word+ si))))
 
 (define (emit-tail-app si env expr)
   (define (emit-arguments si args)
@@ -709,7 +723,9 @@
 (define (emit-closure si env expr)
   (apply emit-comment-list expr)
   (apply emit-comment-list env)
-  (emit "    mov [ebp], ~a" (lookup-variable (cadr expr) env))
+  ;; Need lea here; otherwise we get the value of where the label points to.
+  (emit "    lea eax, ~a" (lookup-variable (cadr expr) env))
+  (emit "    mov [ebp], eax")
   (let cl-args ([vars (cddr expr)] [bp (word+ 0)])
     (unless (null? vars)
             (emit-comment-list (car vars))
@@ -717,7 +733,7 @@
             (emit "    mov ~a, eax" (reg-ptr "ebp" bp))
             (cl-args (cdr vars) (word+ bp))))
   (emit "    mov eax, ebp")
-  (emit "    and eax, ~a" closure-tag)
+  (emit "    or eax, ~a" closure-tag)
   ;; The length of the closure includes the symbol closure. If this is odd,
   ;; then the number of arguments is even, and is one less than the length. If
   ;; this is even, the number of arguments is odd, and the desired length is
