@@ -696,25 +696,46 @@
   (emit-adjust-stack (- (word+ si))))
 
 (define (emit-tail-app si env expr)
-  (define (emit-arguments si args)
-    (unless (null? args)
-            (emit-expr si env (car args))
-            (emit-stack-save si)
-            (emit-arguments (word- si) (cdr args))))
-  ;; xxx todo: what if dest == src?
+  ;; (See also comments in emit-app for context)
+  ;;
+  ;; For tail app, we are necessarily coming from another call to emit-app or
+  ;; to emit-tail-app. This means that the value of edi is saved away from the
+  ;; previous call. When we return from this call, we should jump back to the
+  ;; caller's return point, and also restore their value of edi. This means we
+  ;; do not need to save edi on the stack; all we need to do is to find the
+  ;; address to jump to and return there. However, we don't keep any gaps in
+  ;; the stack as we do for emit-app (which we utilized to store the function
+  ;; pointer). We could do what we did for emit-app (which offsets the formal
+  ;; variables by one), and copy-arguments would take care of it. However,
+  ;; this would always require a copy of the arguments, which may not be
+  ;; necessary when doing a tail call after a procedure with no arguments.
+  ;;
+  ;; In order to avoid this, we emit the closure pointer at the end, and make
+  ;; sure it is stored in eax. This requires a different definition of
+  ;; emit-arguments from the one in emit-app.
+  (define (emit-arguments si args fun)
+    (if (null? args)
+        (emit-expr fun)             ; fun (closure pointer) is stored in eax
+        (begin
+          (emit-expr si env (car args))
+          (emit-stack-save si)
+          (emit-arguments (word- si) (cdr args) fun))))
   (define (copy-arguments dest src exprs)
-    (unless (null? exprs)
-            (emit-stack-load src)
-            (emit-stack-save dest)
-            (copy-arguments (word- dest) (word- src) (cdr exprs))))
+    ;; If dest==src, nothing to do
+    (unless (eqv? dest src)
+       (unless (null? exprs)
+          (emit-stack-load src)
+          (emit-stack-save dest)
+          (copy-arguments (word- dest) (word- src) (cdr exprs))))
 
-  (let ([lbl (lookup-variable (car expr) env)])
-    (unless (string? lbl)               ; else not a lambda expression
-            (error 'emit-app "Unknown procedure" (car expr)))
     ;; We don't need to keep any space for the return address; thus use si
-    (emit-arguments si (cdr expr))
+    (emit-arguments si (cdr expr) (car expr))
+    ;; arguments are on stack, closure is in eax
+    (emit-comment "copy closure pointer")
+    (emit "    mov edi, eax")
+    (emit "    sub edi, ~a" closure-tag)
     (copy-arguments (- wordsize) si (cdr expr))
-    (emit "    jmp ~a // tail call" lbl)
+    (emit "    jmp [edi] // tail call")
     (emit "")))
 
 (define (closure? expr)

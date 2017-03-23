@@ -156,3 +156,7 @@
   ;;  emit a comment line only if emit-comment? is #t
   (when emit-comment?
         (emit "    //~s" expr)))
+
+(define (emit-comment expr)
+  (when emit-comment?
+        (emit "    //~s" expr)))

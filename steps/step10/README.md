@@ -28,6 +28,49 @@ the lifting, we can be sure that the only place a `lambda` will exist is in
 the top level letrec. Every other location will have a closure instead of a
 `lambda` expression.
 
+## Top level code generation
+Since we are now guaranteed to have a top level `letrec`, we can simply call
+`emit-letrec` on the transformed and lifted expression. We also add a
+`closure?` procedure, and an `emit-closure`. As a closure is just a data
+element, `emit-tail-closure` calls `emit-closure` and then emits a `ret`
+instruction.
+
+## Closure expressions
+To emit a closure, we first copy the label of the closure into `EBP`. In the
+GNU Assembler (which clang is compatible with), emitting a `mov eax, L32`
+(where `L32` is a label) emits an instruction to copy the *contents* of the
+location pointed to by `L32` into `EAX`. This is obviously not what we want.
+The two ways to copy the value of the label (the location it points to) are:
+```assembler
+lea EAX, L32
+mov EAX OFFSET FLAT:L32
+```
+We use the first form (`lea`). See [this StackOverflow post](http://stackoverflow.com/questions/1897401/gnu-assembler-get-address-of-label-variable-intel-syntax) for more details.
+
+Next, emit each of the arguments of the closure into successive `EBP` offsets
+(`[EBP+4]`, `[EBP+8]` and so on). After this, we need to copy the value of
+`EBP` into EAX as the return value, and then add to EBP to ensure that the
+space is occupied. We also have to make sure we are at a multiple of 8.
+Unlike, say, `make-vector`, we know at compile time the length of the closure.
+Note that the arguments to `closure` *including the label* must be even, this
+means that the length of the closure expression (including the symbol
+`'closure`) must be odd. We take advantage of this to precompute the lengths,
+using the following expression:
+```scheme
+  (let ([clen (length expr)])
+    (emit "    add ebp, ~a"
+          (* wordsize (if (odd? clen) (- clen 1) clen)))))
+```
+
+If the length of the closure expression is odd, this means it has an even
+number of arguments, and the number of "word slots" is one less than the
+length of the closure expression. If on the other hand, it is even, we have an
+odd number of arguments and need to pad the number of expressions by one to
+make it even: exactly the length of the closure expression!
+
+## `emit-app` and `emit-tail-app`
+Next we come to what is perhaps the hardest part: using the closures.
+
 # TODO
 * &#x2714; emit-lambda should be modified to account for free variables
 * Need to write emit-closure
