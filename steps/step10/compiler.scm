@@ -156,6 +156,15 @@
   (emit "    sar eax, ~a" (- wordbits fx/bits))
   (emit "    mul dword ptr ~a" (esp-ptr si)))
 
+(define-primitive (fx/ si env arg1 arg2)
+  (emit-args-and-save si env arg1 arg2) ; arg1 in eax, arg2 in esp
+  ;; ebx and edx get clobbered
+  (emit "    mov ebx, ~a" (esp-ptr si))
+  (emit "    xor edx, edx")
+  ;; edx:eax / ebx => eax <- Quotient, edx <- remainder
+  (emit "    div ebx")
+  (emit "    shl eax, ~a" (- wordbits fx/bits)))
+
 (define-primitive (fxlogand si env arg1 arg2)
   (let* ([res (emit-args-and-save* si env arg1 arg2)])
     (emit "    and eax, ~a" (cdr res))))
@@ -546,7 +555,7 @@
 (define (let*?   expr) (let-expr? 'let*   expr))
 (define (letrec? expr) (and (let-expr? 'letrec expr)
                             (for-all (lambda (b)
-                                       (lambda? (cadr b))) (cadr expr))))
+                                       (closure? (cadr b))) (cadr expr))))
 
 ;; A variable on the (run-time) stack will return a string representation
 ;; of the value. This can be used either for a load or a store
@@ -610,7 +619,7 @@
              (or (null? vars)
                  (and (list? vars) (for-all symbol? vars))))))
 
-(define (emit-letrec expr)
+(define (emit-letrec-top expr)
   (define letrec-body cddr)
   (let* ([bindings (cadr expr)]
          [lvars    (map car bindings)]
@@ -619,6 +628,34 @@
          [env      (make-initial-env lvars labels)])
     (for-each (emit-lambda env) lambdas labels lvars)
     (emit-scheme-entry env (letrec-body expr))))
+
+(define (emit-letrec si env expr)
+  (define letrec-body cddr)
+  (let* ([bindings (cadr expr)]
+         [lvars    (map car    bindings)]
+         [closures (map cadr   bindings)]
+         [lengths  (map closure-space closures)])
+    (let ebp ([si si]
+              [env env]
+              [lvars lvars]
+              [ac 0]
+              [lengths lengths])
+      (if (null? lvars)
+          ;; At this point both si and env are the new values
+          (let ([si 
+                 ;; This also sets ebp to the right value
+                 (fold-left (lambda (si cl)
+                              (emit-closure si env cl)
+                              (emit-stack-save si)
+                              (word- si)) si closures)])
+            (emit-exprs si env (letrec-body expr)))
+          (begin
+            (emit "    // variable ~a" (car lvars))
+            (emit "    lea eax, ~a" (reg-ptr "ebp" ac))
+            (emit "    or eax, ~a" closure-tag)
+            (emit "    mov ~a, eax" (esp-ptr si))
+            (ebp (word- si) (extend-env (car lvars) si env) (cdr lvars)
+                 (fx+ ac (car lengths)) (cdr lengths)))))))
 
 (define (emit-lambda env)
   ;; Instead of directly generating a lambda, we generate a function that
@@ -686,6 +723,7 @@
   ;; the stack (which esp now points to), using up one of the two free slots.
   ;; [esp+4] then contains the new edi value, which we move into edi. We can
   ;; load the value of edi and jump to it.
+  (emit-comment (format "call ~s" expr))
   (emit-arguments (word- si) expr)
   (emit-adjust-stack (word+ si))
   (emit "    push edi")
@@ -715,7 +753,7 @@
   ;; emit-arguments from the one in emit-app.
   (define (emit-arguments si args fun)
     (if (null? args)
-        (emit-expr fun)             ; fun (closure pointer) is stored in eax
+        (emit-expr si env fun)       ; fun (closure pointer) is stored in eax
         (begin
           (emit-expr si env (car args))
           (emit-stack-save si)
@@ -726,7 +764,7 @@
        (unless (null? exprs)
           (emit-stack-load src)
           (emit-stack-save dest)
-          (copy-arguments (word- dest) (word- src) (cdr exprs))))
+          (copy-arguments (word- dest) (word- src) (cdr exprs)))))
 
     ;; We don't need to keep any space for the return address; thus use si
     (emit-arguments si (cdr expr) (car expr))
@@ -736,39 +774,41 @@
     (emit "    sub edi, ~a" closure-tag)
     (copy-arguments (- wordsize) si (cdr expr))
     (emit "    jmp [edi] // tail call")
-    (emit "")))
+    (emit ""))
 
 (define (closure? expr)
   (and (tagged-list? 'closure expr) (> (length expr) 1)))
 
+(define (closure-space expr)
+  ;; The amount of space used by each closure, always a multiple of 2*wordsize
+  ;; The length of the closure includes the symbol 'closure. If this is odd,
+  ;; then the number of arguments is even, and is one less than the length. If
+  ;; this is even, the number of arguments is odd, and the desired length is
+  ;; the length of the closure expression.
+  (let ([clen (length expr)])
+    (* wordsize (if (odd? clen) (- clen 1) clen))))
+
 (define (emit-closure si env expr)
-  (apply emit-comment-list expr)
-  (apply emit-comment-list env)
+  (emit-comment-list 'closure expr)
   ;; Need lea here; otherwise we get the value of where the label points to.
   (emit "    lea eax, ~a" (lookup-variable (cadr expr) env))
   (emit "    mov [ebp], eax")
   (let cl-args ([vars (cddr expr)] [bp (word+ 0)])
     (unless (null? vars)
-            (emit-comment-list (car vars))
+            (emit-comment-list "lookup "(car vars))
             (emit-stack-load (lookup-variable (car vars) env))
             (emit "    mov ~a, eax" (reg-ptr "ebp" bp))
             (cl-args (cdr vars) (word+ bp))))
   (emit "    mov eax, ebp")
   (emit "    or eax, ~a" closure-tag)
-  ;; The length of the closure includes the symbol closure. If this is odd,
-  ;; then the number of arguments is even, and is one less than the length. If
-  ;; this is even, the number of arguments is odd, and the desired length is
-  ;; the length of the closure expression.
-  (let ([clen (length expr)])
-    (emit "    add ebp, ~a"
-          (* wordsize (if (odd? clen) (- clen 1) clen)))))
+  (emit "    add ebp, ~a" (closure-space expr)))
 
 (define (emit-tail-closure si env expr)
   (emit-closure si env expr)
   (emit-ret))
 
 (define (app? expr)
-  (and (pair? expr) (or (symbol? (car expr)) (closure? (car expr)))))
+  (and (pair? expr) (symbol? (car expr))))
 
 (define (make-initial-env symbols values)
   (map cons symbols values))
@@ -1005,6 +1045,7 @@
    [(primcall?  expr) (emit-primcall  si env expr)]
    [(let?       expr) (emit-let       si env expr)]
    [(let*?      expr) (emit-let*      si env expr)]
+   [(letrec?    expr) (emit-letrec    si env expr)]
    [(and-or?    expr) (emit-and-or    si env expr)]
    [(app?       expr) (emit-app       si env expr)]
    [else (error 'emit-expr "Unknown expression type" expr)]))
@@ -1022,6 +1063,7 @@
    [(primcall?  expr) (emit-tail-primcall  si env expr)]
    [(let?       expr) (emit-tail-let       si env expr)]
    [(let*?      expr) (emit-tail-let*      si env expr)]
+   [(letrec?    expr) (emit-tail-letrec    si env expr)]
    [(and-or?    expr) (emit-tail-and-or    si env expr)]
    [(app?       expr) (emit-tail-app       si env expr)]
    [else (error 'emit-tail-expr "Unknown expression type" expr)]))
@@ -1036,7 +1078,7 @@
   (emit "    .text")
   (emit "    .intel_syntax noprefix")
   (emit "    .globl R_scheme_entry")
-  (emit-letrec (lift (transform expr))))
+  (emit-letrec-top (lift (transform expr))))
   ;(if (letrec? expr)
   ;    (emit-letrec expr)          ; which eventually calls emit-scheme-entry
   ;    (emit-scheme-entry '() (list expr))))

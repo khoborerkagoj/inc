@@ -30,10 +30,13 @@ the top level letrec. Every other location will have a closure instead of a
 
 ## Top level code generation
 Since we are now guaranteed to have a top level `letrec`, we can simply call
-`emit-letrec` on the transformed and lifted expression. We also add a
+`emit-letrec-top` on the transformed and lifted expression. We also add a
 `closure?` procedure, and an `emit-closure`. As a closure is just a data
 element, `emit-tail-closure` calls `emit-closure` and then emits a `ret`
 instruction.
+
+We will implement an `emit-letrec`, described below, that implements the usual
+scheme `letrec`s.  Thus we call this expression `emit-letrec-top`.
 
 ## Closure expressions
 To emit a closure, we first copy the label of the closure into `EBP`. In the
@@ -118,6 +121,18 @@ expression and don't save it onto the stack: this ensures that the closure
 expression is in EAX, from where we can move into EDI and do what needs to be
 done.
 
+## Implementing `letrec`
+Now that we have implemented transformation and `emit-closure`, we can modify
+the implementation of emit-letrec to implement `letrec` with functions.
+Closures are simply data elements; however, we need to deal with the bound
+variables in the letrec concurrently.
+
+## `fx/`
+To test the collatz sequence, we add the primitive `fx/`, which implements
+integer division. This is pretty simple: we divide one by the other using the
+`DIV` instruction. As we pass in two fixnums, we get an output of an integer,
+which we then convert to a fixnum again.
+
 # TODO
 * For now, don't allow letrec except for top level. We can add that later,
   and then we could consider splitting it up into emit-init-letrec (only
@@ -128,4 +143,4 @@ done.
   reference those from edi instead of esp.
     * Note that this means that future variable references (just for define'd
       variables) must also be put on the stack. Otherwise we will have to
-      rewrite emi-variable-ref to reference the heap or global data.
+      rewrite emit-variable-ref to reference the heap or global data.

@@ -16,6 +16,3 @@
         (letrec ([f (closure f0 y g)]
                  [g (closure f1 p q)])
           (cons (call g 5) (call f 2))))
-
-
-
