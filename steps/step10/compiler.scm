@@ -1,4 +1,5 @@
 (load "../../src/tests-driver.scm")
+(load "../../src/tests-2.1-req.scm")
 (load "../../src/tests-1.9.3-req.scm")
 (load "../../src/tests-1.9.2-req.scm")
 (load "../../src/tests-1.9.1-req.scm")
@@ -118,7 +119,7 @@
   (emit-expr si env arg)
   (emit-mask-compare= data-mask pair-tag))
 
-(define-primitive (closure? si env arg)
+(define-primitive (procedure? si env arg)
   (emit-expr si env arg)
   (emit-mask-compare= data-mask closure-tag))
 
@@ -651,8 +652,8 @@
             (emit-exprs si env (letrec-body expr)))
           (begin
             (emit "    // variable ~a" (car lvars))
-            (emit "    lea eax, ~a" (reg-ptr "ebp" ac))
-            (emit "    or eax, ~a" closure-tag)
+            (emit "    lea eax, ~a" (reg-ptr "ebp" (+ ac closure-tag)))
+            ;;(emit "    or eax, ~a" closure-tag)
             (emit "    mov ~a, eax" (esp-ptr si))
             (ebp (word- si) (extend-env (car lvars) si env) (cdr lvars)
                  (fx+ ac (car lengths)) (cdr lengths)))))))
@@ -891,7 +892,7 @@
 ;; ==== Utilities ====
 (define (expr-from-file fn)
   ;; Read the expression from file with name fn
-  (with-input-from-file fn (lambda () (eval (read)))))
+  (with-input-from-file fn (lambda () (read))))
 
 ;; ==== Stack functions ====
 (define (esp-ptr si)

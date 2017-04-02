@@ -127,6 +127,18 @@ the implementation of emit-letrec to implement `letrec` with functions.
 Closures are simply data elements; however, we need to deal with the bound
 variables in the letrec concurrently.
 
+## Edits to `expr-from-file`
+Changing the definition of `expr-from-file` from 
+```scheme
+(with-input-from-file fn (lambda () (eval (read)))))
+```
+to 
+```scheme
+(with-input-from-file fn (lambda () (read))))
+```
+allows us to skip the quoted expressions we have been using in the file. We
+are still limited only to the single expression form that we have been using.
+
 ## `fx/`
 To test the collatz sequence, we add the primitive `fx/`, which implements
 integer division. This is pretty simple: we divide one by the other using the
