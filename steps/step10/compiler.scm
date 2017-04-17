@@ -540,6 +540,9 @@
 ;; ======================================================================
 ;; Local variables
 ;; ======================================================================
+(define (let-body     let-expr) (cddr let-expr))
+(define (let-bindings let-expr) (cadr let-expr))
+
 ;; let-like expressions (controlled by name)
 (define (let-expr? name expr)
   (define (binding? expr)
@@ -578,8 +581,6 @@
 ;; emitter defines whether we process it as a tail expression. Note that
 ;; emitter should process a list of expressions, not a single expression.
 (define (emit-let/* si env expr is*? emitter)
-  (define (let-body     let-expr) (cddr let-expr))
-  (define (let-bindings let-expr) (cadr let-expr))
   ;; process bindings, one at a time
   (let pb ([bindings (let-bindings expr)]
            [si       si                 ]
@@ -643,7 +644,7 @@
               [lengths lengths])
       (if (null? lvars)
           ;; At this point both si and env are the new values
-          (let ([si 
+          (let ([si
                  ;; This also sets ebp to the right value
                  (fold-left (lambda (si cl)
                               (emit-closure si env cl)
@@ -796,7 +797,8 @@
   (emit "    mov [ebp], eax")
   (let cl-args ([vars (cddr expr)] [bp (word+ 0)])
     (unless (null? vars)
-            (emit-comment-list "lookup "(car vars))
+            (emit-comment-list "lookup " (car vars))
+            (emit "//ENV: ~a" env)
             (emit-stack-load (lookup-variable (car vars) env))
             (emit "    mov ~a, eax" (reg-ptr "ebp" bp))
             (cl-args (cdr vars) (word+ bp))))
@@ -945,6 +947,9 @@
    [(null? l) '()]
    [else      (f l)]))
 
+(define (flatmap f . lst)
+  (apply append (apply map f lst)))
+
 ;; ==== Environments ====
 ;; An environment is represented by the stack offset it has. The lookup
 ;; function will return the stack offset, or #f if not found.
@@ -957,11 +962,19 @@
 
 ;; ==== Transformation ====
 (define specials '(if and or cond lambda begin
-                   define let let* letrec letrec*))
+                      define let let* letrec letrec*))
+
+;; Return a list with only the unique elements in l, as determined by eqv?
+(define (unique l)
+  (if (null? l) l
+      (cons (car l) (unique (remv (car l) (cdr l))))))
+
 (define (transform expr)
   ;; These apply only to the untransformed lambda.
   (define lambda-fmls cadr)
   (define lambda-body cddr)
+  ;; Finds freevars in the given expression, and appends the found freevars to
+  ;; our already known lis of free vars 'fv'
   (define (freevars fmls fv expr)
     ;; if expr is a lambda, skip it
     ;; if it is a list, recurse on it
@@ -972,10 +985,24 @@
            ;; its formals list. However, they may appear in our formals list
            ;; or our freevars list. So, if we are in a nested lambda L, we add
            ;; a free var if it does not appear in L's formals, our formals or
-           ;; our already known freevars
+           ;; our already known freevars. Note that we are looking for free
+           ;; variables that are defined in a nested lambda, but these should
+           ;; be "free" in our expression. The nested lambda will figure out
+           ;; its own free variables through the transformation process.
            (freevars (append fmls (lambda-fmls expr)) fv (lambda-body expr))]
            ;; We have to get the freevars out of the first expression,
            ;; and pass the extended list to the cdr
+           [(let? expr)
+            (let ([fv
+                   (unique
+                    (flatmap (lambda (e) (freevars fmls fv (cadr e)))
+                             (let-bindings expr)))]
+                  [bound (map car (let-bindings expr))])
+              ;; We don't want the let to pick up the variables bound in the
+              ;; let, but we don't want to add those in the freevars of the
+              ;; lambda. Thus we add them to the formals, they get discarded
+              ;; afterwards.
+              (freevars (append bound fmls) fv (let-body expr)))]
            [(pair? expr) (let ([fv (freevars fmls fv (car expr))])
                            (freevars fmls fv (cdr expr)))]
            [(and (symbol? expr)
@@ -993,7 +1020,7 @@
    [(pair? expr) (map* transform expr)]
    [else expr]))
 
-(define (lift expr)
+(define (lift-closures expr)
   (define lbl-list '())
   (define (lift-rec expr)
     (cond
@@ -1011,6 +1038,7 @@
   (set! lbl-list '())
   (let ([lexpr (lift-rec expr)])
     (cons 'letrec (cons lbl-list (list lexpr)))))
+(define (lift expr) (lift-closures (transform expr)))
 
 ;; ======================================================================
 ;; Main program
@@ -1079,7 +1107,7 @@
   (emit "    .text")
   (emit "    .intel_syntax noprefix")
   (emit "    .globl R_scheme_entry")
-  (emit-letrec-top (lift (transform expr))))
+  (emit-letrec-top (lift expr)))
   ;(if (letrec? expr)
   ;    (emit-letrec expr)          ; which eventually calls emit-scheme-entry
   ;    (emit-scheme-entry '() (list expr))))

@@ -125,7 +125,43 @@ done.
 Now that we have implemented transformation and `emit-closure`, we can modify
 the implementation of emit-letrec to implement `letrec` with functions.
 Closures are simply data elements; however, we need to deal with the bound
-variables in the letrec concurrently.
+variables in the letrec concurrently. This must be done before we start
+emitting the actual expressions, so that any bound variables are in the
+environment. Consider the expression:
+```scheme
+(letrec ([even? (lambda (x) (or (= x 0) (odd? (- x 1))))]
+         [odd?  (lambda (x) (and (not (= x 0)) (even? (- x 1))))])
+  (cons (even? 20) (odd? 20)))
+```
+Both `even?` and `odd?` need to be in the environment so the appropriate
+code can be generated (while generating code for `even?`, we must be able to
+assign a value for `odd?`).
+
+To solve this, note that our expressions will be transformed into:
+```scheme
+(letrec ([even? (closure even?-sym odd?)]
+         [odd?  (closure odd?-sym even?)])
+  (cons (even? 20) (odd? 20)))
+```
+where `even?-sym` and `odd?-sym` are the symbols representing the lifted
+lambda-expressions. Each closure would be on the heap, but we can precompute
+their pointers before we actually generate the code. This is what we do:
+- First figure out the pointers for each closure and save those onto the
+  stack, adding the stack values to the environment as you go.
+- Then we can generate the code for each closure expression.
+
+In the example above, the first closure (`even?`) would take up 8 bytes and
+would be generated at EBP. We thus save EBP in `[ESP-si]`.  The next closure
+(`odd?`) would also take up 8 bytes and be generated at `EBP+8`. We save
+`EBP+8` in `[ESP-si-4]`. Note we are careful not to change EBP in this
+process. The environment now has values `('even? . si)` and
+`('odd? . (si - 4))` where of course the actual values of `si` are
+substituted.
+
+We next generate the code for the closures; this is not an issue since all
+the symbols we need are in the environment. This will increment the value of
+EBP as well.  Finally, we are ready to generate code for the body of the
+`letrec`.
 
 ## Edits to `expr-from-file`
 Changing the definition of `expr-from-file` from 
